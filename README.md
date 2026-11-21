@@ -103,3 +103,13 @@ src/
 - 支持多行对齐：`align(x=1;y=2)`
 - 支持 `matrix`、`bmatrix`、`pmatrix`、`vmatrix`、`cases`
 - MathLive 修改会通过 LaTeX 适配器同步回线性源码
+
+## Cloud workspace
+
+- Supabase Auth email magic-link login
+- Cloud documents stored in PostgreSQL
+- Per-user RLS isolation
+- Autosave after opening/saving a cloud document
+- Share links backed by `get_shared_document` and unguessable tokens
+- Local developer setup is in `supabase/README.md` and `supabase/schema.sql`
+- GitHub Actions reads `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from repository variables

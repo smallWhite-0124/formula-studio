@@ -4,6 +4,7 @@ import StarterKit from "@tiptap/starter-kit";
 import {
   Bold,
   Braces,
+  Cloud,
   Copy,
   Download,
   Heading1,
@@ -22,6 +23,7 @@ import {
   WandSparkles
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CloudDialog } from "./components/CloudDialog";
 import { FormulaEditorDialog } from "./components/FormulaEditorDialog";
 import { MathLivePreview } from "./components/MathLivePreview";
 import { TemplateDialog } from "./components/TemplateDialog";
@@ -29,6 +31,23 @@ import { FormulaNode, type FormulaEditDetail } from "./editor/FormulaNode";
 import { buildDocxBlob, downloadBlob } from "./export/docx";
 import { importDocx } from "./import/docxImport";
 import { buildShareUrl, parseSharedDocumentHash } from "./share/documentLink";
+import {
+  cloudConfigured,
+  cloudShareUrl,
+  createCloudDocument,
+  createCloudShare,
+  currentCloudShareToken,
+  deleteCloudDocument,
+  getCloudDocument,
+  getCloudUser,
+  getSharedCloudDocument,
+  listCloudDocuments,
+  sendCloudLoginLink,
+  signOutCloud,
+  supabase,
+  updateCloudDocument,
+  type CloudDocumentSummary
+} from "./cloud/supabase";
 import { toOmml } from "./formula/omml";
 import { parseFormula } from "./formula/parser";
 import { builtInTemplates } from "./formula/templates";
@@ -152,8 +171,14 @@ export default function App() {
   const [insertDisplayMode, setInsertDisplayMode] = useState(false);
   const [editingFormula, setEditingFormula] = useState<FormulaEditDetail | null>(null);
   const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
+  const [cloudDialogOpen, setCloudDialogOpen] = useState(false);
+  const [cloudUserEmail, setCloudUserEmail] = useState<string | null>(null);
+  const [cloudDocuments, setCloudDocuments] = useState<CloudDocumentSummary[]>([]);
+  const [cloudDocumentId, setCloudDocumentId] = useState<string | null>(null);
+  const [cloudLoading, setCloudLoading] = useState(false);
+  const [cloudSyncing, setCloudSyncing] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
-  const [, setRevision] = useState(0);
+  const [revision, setRevision] = useState(0);
   const toastTimerRef = useRef<number | null>(null);
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const convertRef = useRef<() => void>(() => {});
@@ -170,6 +195,48 @@ export default function App() {
     setToast({ message, kind });
     toastTimerRef.current = window.setTimeout(() => setToast(null), duration);
   }, []);
+
+  const refreshCloudDocuments = useCallback(async (silent = false) => {
+    if (!cloudConfigured) return;
+    setCloudLoading(true);
+    try {
+      const documents = await listCloudDocuments();
+      setCloudDocuments(documents);
+    } catch (error) {
+      if (!silent) showToast(`加载云端文档失败：${errorMessage(error)}`, "error", 5000);
+    } finally {
+      setCloudLoading(false);
+    }
+  }, [showToast]);
+
+  useEffect(() => {
+    if (!cloudConfigured || !supabase) return;
+    let cancelled = false;
+
+    const loadUser = async () => {
+      const user = await getCloudUser();
+      if (cancelled) return;
+      setCloudUserEmail(user?.email ?? null);
+      if (user) await refreshCloudDocuments(true);
+    };
+
+    void loadUser();
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (cancelled) return;
+      setCloudUserEmail(session?.user.email ?? null);
+      if (session?.user) {
+        void refreshCloudDocuments(true);
+      } else {
+        setCloudDocuments([]);
+        setCloudDocumentId(null);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      data.subscription.unsubscribe();
+    };
+  }, [refreshCloudDocuments]);
 
   useEffect(() => {
     if (sharedDocument) {
@@ -224,6 +291,48 @@ export default function App() {
     window.addEventListener("formula:edit", handleFormulaEdit);
     return () => window.removeEventListener("formula:edit", handleFormulaEdit);
   }, []);
+
+  useEffect(() => {
+    if (!editor || !cloudConfigured) return;
+    const token = currentCloudShareToken();
+    if (!token) return;
+    let cancelled = false;
+
+    const loadShared = async () => {
+      try {
+        const shared = await getSharedCloudDocument(token);
+        if (cancelled) return;
+        if (!shared) throw new Error("分享链接无效或已过期。");
+        editor.commands.setContent(shared.content, { emitUpdate: true });
+        setDocumentTitle(shared.title);
+        setCloudDocumentId(null);
+        showToast("已加载云端分享文档。", "success", 4200);
+      } catch (error) {
+        if (!cancelled) showToast(`加载分享文档失败：${errorMessage(error)}`, "error", 5000);
+      }
+    };
+
+    void loadShared();
+    return () => {
+      cancelled = true;
+    };
+  }, [editor, showToast]);
+
+  useEffect(() => {
+    if (!editor || !cloudDocumentId || !cloudUserEmail || revision === 0) return;
+    setCloudSyncing(true);
+    const timer = window.setTimeout(async () => {
+      try {
+        await updateCloudDocument(cloudDocumentId, documentTitle, editor.getJSON());
+      } catch (error) {
+        showToast(`云端保存失败：${errorMessage(error)}`, "error", 5000);
+      } finally {
+        setCloudSyncing(false);
+      }
+    }, 1200);
+
+    return () => window.clearTimeout(timer);
+  }, [cloudDocumentId, cloudUserEmail, documentTitle, editor, revision, showToast]);
 
   const handleConvertSelection = useCallback(() => {
     if (!editor) return;
@@ -358,14 +467,66 @@ export default function App() {
     }
   };
 
+  const saveCurrentToCloud = async () => {
+    if (!editor) throw new Error("编辑器还没有准备好。");
+    if (!cloudUserEmail) {
+      setCloudDialogOpen(true);
+      throw new Error("请先登录云端账号。");
+    }
+    if (cloudDocumentId) {
+      await updateCloudDocument(cloudDocumentId, documentTitle, editor.getJSON());
+    } else {
+      const created = await createCloudDocument(documentTitle, editor.getJSON());
+      setCloudDocumentId(created.id);
+    }
+    await refreshCloudDocuments(true);
+  };
+
+  const openCloudDocumentHandler = async (id: string) => {
+    if (!editor) throw new Error("编辑器还没有准备好。");
+    setCloudLoading(true);
+    try {
+      const document = await getCloudDocument(id);
+      editor.commands.setContent(document.content, { emitUpdate: true });
+      setDocumentTitle(document.title);
+      setCloudDocumentId(document.id);
+      localStorage.setItem(DOCUMENT_TITLE_KEY, document.title);
+      setCloudDialogOpen(false);
+      showToast(`已打开云端文档：${document.title}`, "success");
+    } finally {
+      setCloudLoading(false);
+    }
+  };
+
+  const deleteCloudDocumentHandler = async (id: string) => {
+    await deleteCloudDocument(id);
+    if (id === cloudDocumentId) setCloudDocumentId(null);
+    await refreshCloudDocuments(true);
+  };
+
+  const signOutCloudHandler = async () => {
+    await signOutCloud();
+    setCloudUserEmail(null);
+    setCloudDocuments([]);
+    setCloudDocumentId(null);
+  };
+
   const shareDocument = async () => {
     if (!editor) return;
     try {
-      const url = buildShareUrl(editor.getJSON(), documentTitle);
+      let url: string;
+      if (cloudUserEmail && cloudDocumentId) {
+        await updateCloudDocument(cloudDocumentId, documentTitle, editor.getJSON());
+        const token = await createCloudShare(cloudDocumentId);
+        url = cloudShareUrl(token);
+        showToast("云端分享链接已复制。", "success", 5000);
+      } else {
+        url = buildShareUrl(editor.getJSON(), documentTitle);
+        showToast("分享链接已复制。链接中包含压缩后的文档内容。", "success", 5000);
+      }
       await navigator.clipboard.writeText(url);
-      showToast("分享链接已复制。链接中包含压缩后的文档内容。", "success", 5000);
     } catch (error) {
-      showToast(`生成分享链接失败：${errorMessage(error)}`, "error");
+      showToast(`生成分享链接失败：${errorMessage(error)}`, "error", 5000);
     }
   };
 
@@ -428,6 +589,13 @@ export default function App() {
               if (file) void handleDocxImport(file);
             }}
           />
+          <button
+            type="button"
+            className={"ghost-button" + (cloudUserEmail ? " cloud-connected" : "")}
+            onClick={() => setCloudDialogOpen(true)}
+          >
+            <Cloud size={15} /> {cloudUserEmail ? "云端 · 已登录" : "云端"}
+          </button>
           <button type="button" className="ghost-button" onClick={() => void shareDocument()}>
             <Share2 size={15} /> 分享链接
           </button>
@@ -622,7 +790,7 @@ export default function App() {
 
           <footer className="status-bar">
             <span className="status-dot" />
-            <span>本地自动保存</span>
+            <span>{cloudDocumentId ? (cloudSyncing ? "云端同步中…" : "云端自动保存") : "本地自动保存"}</span>
             <span className="status-divider" />
             <span>公式以语义结构保存</span>
             <span className="status-spacer" />
@@ -647,6 +815,23 @@ export default function App() {
           existing={customTemplates}
           onClose={() => setTemplateDialogOpen(false)}
           onSave={saveTemplate}
+        />
+      ) : null}
+
+      {cloudDialogOpen ? (
+        <CloudDialog
+          configured={cloudConfigured}
+          userEmail={cloudUserEmail}
+          documents={cloudDocuments}
+          activeDocumentId={cloudDocumentId}
+          loading={cloudLoading}
+          onClose={() => setCloudDialogOpen(false)}
+          onSendLogin={sendCloudLoginLink}
+          onSignOut={signOutCloudHandler}
+          onSaveCurrent={saveCurrentToCloud}
+          onOpenDocument={openCloudDocumentHandler}
+          onDeleteDocument={deleteCloudDocumentHandler}
+          onRefresh={() => refreshCloudDocuments(false)}
         />
       ) : null}
 
