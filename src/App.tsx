@@ -13,6 +13,7 @@ import {
   Plus,
   Redo2,
   RotateCcw,
+  Share2,
   Sigma,
   Sparkles,
   Trash2,
@@ -27,6 +28,7 @@ import { TemplateDialog } from "./components/TemplateDialog";
 import { FormulaNode, type FormulaEditDetail } from "./editor/FormulaNode";
 import { buildDocxBlob, downloadBlob } from "./export/docx";
 import { importDocx } from "./import/docxImport";
+import { buildShareUrl, parseSharedDocumentHash } from "./share/documentLink";
 import { toOmml } from "./formula/omml";
 import { parseFormula } from "./formula/parser";
 import { builtInTemplates } from "./formula/templates";
@@ -142,8 +144,9 @@ function ToolbarButton({ title, active = false, disabled = false, onClick, child
 }
 
 export default function App() {
+  const [sharedDocument] = useState(() => parseSharedDocumentHash(window.location.hash));
   const [customTemplates, setCustomTemplates] = useState<FormulaTemplate[]>(loadCustomTemplates);
-  const [documentTitle, setDocumentTitle] = useState(() => localStorage.getItem(DOCUMENT_TITLE_KEY) || '公式文档');
+  const [documentTitle, setDocumentTitle] = useState(() => sharedDocument?.title || localStorage.getItem(DOCUMENT_TITLE_KEY) || '公式文档');
   const [isImporting, setIsImporting] = useState(false);
   const [labSource, setLabSource] = useState(INITIAL_SOURCE);
   const [insertDisplayMode, setInsertDisplayMode] = useState(false);
@@ -169,6 +172,12 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (sharedDocument) {
+      showToast("已从分享链接加载文档。", "success", 4200);
+    }
+  }, [sharedDocument, showToast]);
+
+  useEffect(() => {
     return () => {
       if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
     };
@@ -176,7 +185,7 @@ export default function App() {
 
   const editor = useEditor({
     extensions: [StarterKit, FormulaNode],
-    content: loadDocument(),
+    content: sharedDocument?.document ?? loadDocument(),
     editorProps: {
       attributes: {
         class: "prose-editor",
@@ -349,6 +358,17 @@ export default function App() {
     }
   };
 
+  const shareDocument = async () => {
+    if (!editor) return;
+    try {
+      const url = buildShareUrl(editor.getJSON(), documentTitle);
+      await navigator.clipboard.writeText(url);
+      showToast("分享链接已复制。链接中包含压缩后的文档内容。", "success", 5000);
+    } catch (error) {
+      showToast(`生成分享链接失败：${errorMessage(error)}`, "error");
+    }
+  };
+
   const exportDocx = async () => {
     if (!editor) return;
     try {
@@ -408,6 +428,9 @@ export default function App() {
               if (file) void handleDocxImport(file);
             }}
           />
+          <button type="button" className="ghost-button" onClick={() => void shareDocument()}>
+            <Share2 size={15} /> 分享链接
+          </button>
           <button
             type="button"
             className="ghost-button"
