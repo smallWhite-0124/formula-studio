@@ -28,8 +28,7 @@ import { FormulaEditorDialog } from "./components/FormulaEditorDialog";
 import { MathLivePreview } from "./components/MathLivePreview";
 import { TemplateDialog } from "./components/TemplateDialog";
 import { FormulaNode, type FormulaEditDetail } from "./editor/FormulaNode";
-import { buildDocxBlob, downloadBlob } from "./export/docx";
-import { importDocx } from "./import/docxImport";
+import { collectFormulaOmml } from "./export/formulaCollection";
 import { buildShareUrl, parseSharedDocumentHash } from "./share/documentLink";
 import {
   cloudConfigured,
@@ -41,10 +40,10 @@ import {
   getCloudDocument,
   getCloudUser,
   getSharedCloudDocument,
+  getSupabaseClient,
   listCloudDocuments,
   sendCloudLoginLink,
   signOutCloud,
-  supabase,
   updateCloudDocument,
   type CloudDocumentSummary
 } from "./cloud/supabase";
@@ -177,6 +176,8 @@ export default function App() {
   const [cloudDocumentId, setCloudDocumentId] = useState<string | null>(null);
   const [cloudLoading, setCloudLoading] = useState(false);
   const [cloudSyncing, setCloudSyncing] = useState(false);
+  const [fidelityMode, setFidelityMode] = useState(false);
+  const fidelityMetaRef = useRef<{ buffer: ArrayBuffer; formulaCount: number } | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [revision, setRevision] = useState(0);
   const toastTimerRef = useRef<number | null>(null);
@@ -210,31 +211,36 @@ export default function App() {
   }, [showToast]);
 
   useEffect(() => {
-    if (!cloudConfigured || !supabase) return;
+    if (!cloudConfigured) return;
     let cancelled = false;
+    let unsubscribe: (() => void) | null = null;
 
-    const loadUser = async () => {
+    const initialize = async () => {
+      const client = await getSupabaseClient();
+      if (cancelled) return;
+
+      const { data } = client.auth.onAuthStateChange((_event, session) => {
+        if (cancelled) return;
+        setCloudUserEmail(session?.user.email ?? null);
+        if (session?.user) {
+          void refreshCloudDocuments(true);
+        } else {
+          setCloudDocuments([]);
+          setCloudDocumentId(null);
+        }
+      });
+      unsubscribe = () => data.subscription.unsubscribe();
+
       const user = await getCloudUser();
       if (cancelled) return;
       setCloudUserEmail(user?.email ?? null);
       if (user) await refreshCloudDocuments(true);
     };
 
-    void loadUser();
-    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (cancelled) return;
-      setCloudUserEmail(session?.user.email ?? null);
-      if (session?.user) {
-        void refreshCloudDocuments(true);
-      } else {
-        setCloudDocuments([]);
-        setCloudDocumentId(null);
-      }
-    });
-
+    void initialize();
     return () => {
       cancelled = true;
-      data.subscription.unsubscribe();
+      unsubscribe?.();
     };
   }, [refreshCloudDocuments]);
 
@@ -306,6 +312,8 @@ export default function App() {
         editor.commands.setContent(shared.content, { emitUpdate: true });
         setDocumentTitle(shared.title);
         setCloudDocumentId(null);
+        setFidelityMode(false);
+        fidelityMetaRef.current = null;
         showToast("已加载云端分享文档。", "success", 4200);
       } catch (error) {
         if (!cancelled) showToast(`加载分享文档失败：${errorMessage(error)}`, "error", 5000);
@@ -449,15 +457,22 @@ export default function App() {
     if (!editor) return;
     setIsImporting(true);
     try {
-      const result = await importDocx(file);
+      const buffer = await file.arrayBuffer();
+      const { importDocx } = await import("./import/docxImport");
+      const result = await importDocx(buffer);
       editor.commands.setContent(result.content, { emitUpdate: true });
       setDocumentTitle(result.title);
       localStorage.setItem(DOCUMENT_TITLE_KEY, result.title);
+      fidelityMetaRef.current = result.formulaCount > 0 ? { buffer, formulaCount: result.formulaCount } : null;
+      setFidelityMode(result.formulaCount > 0);
       const warningText = result.warnings.length > 0 ? ` ${result.warnings.slice(0, 2).join(" ")}` : "";
+      const fidelityText = result.formulaCount > 0
+        ? " 已启用保真导出：表格、图片、批注和页面布局保留，公式修改会回写原文档。"
+        : "";
       showToast(
-        `已导入 ${result.paragraphCount} 个段落、${result.formulaCount} 个 OMML 公式。${warningText}`,
+        `已导入 ${result.paragraphCount} 个段落、${result.formulaCount} 个 OMML 公式。${warningText}${fidelityText}`,
         result.warnings.length > 0 ? "info" : "success",
-        6500
+        8000
       );
     } catch (error) {
       showToast(`导入失败：${errorMessage(error)}`, "error", 5000);
@@ -490,6 +505,8 @@ export default function App() {
       editor.commands.setContent(document.content, { emitUpdate: true });
       setDocumentTitle(document.title);
       setCloudDocumentId(document.id);
+      setFidelityMode(false);
+      fidelityMetaRef.current = null;
       localStorage.setItem(DOCUMENT_TITLE_KEY, document.title);
       setCloudDialogOpen(false);
       showToast(`已打开云端文档：${document.title}`, "success");
@@ -535,13 +552,38 @@ export default function App() {
     try {
       const document = editor.getJSON();
       const title = documentTitle || firstHeadingText(document);
-      const blob = await buildDocxBlob(document, title);
+      let blob: Blob;
+      let faithful = false;
+
+      if (fidelityMode && fidelityMetaRef.current) {
+        const { exportPatchedDocx } = await import("./export/docxPatch");
+        const formulas = collectFormulaOmml(document);
+        blob = (await exportPatchedDocx(fidelityMetaRef.current.buffer, formulas)).blob;
+        faithful = true;
+      } else {
+        const { buildDocxBlob } = await import("./export/docx");
+        blob = await buildDocxBlob(document, title);
+      }
+
+      const { downloadBlob } = await import("./export/docx");
       const date = new Date().toISOString().slice(0, 10);
       downloadBlob(blob, `${title.replace(/[\\/:*?"<>|]/g, "-")}-${date}.docx`);
-      showToast("DOCX 已导出，公式以 OMML 写入。", "success");
+      showToast(
+        faithful
+          ? "保真 DOCX 已导出：表格、图片、批注和页面布局保留，公式修改已回写。"
+          : "DOCX 已导出，公式以 OMML 写入。",
+        "success",
+        5000
+      );
     } catch (error) {
-      showToast(`导出失败：${errorMessage(error)}`, "error");
+      showToast(`导出失败：${errorMessage(error)}`, "error", 6000);
     }
+  };
+
+  const switchToNormalExport = () => {
+    setFidelityMode(false);
+    fidelityMetaRef.current = null;
+    showToast("已切换为普通编辑导出。表格、图片和复杂布局将按编辑器内容重建。", "info", 5500);
   };
 
   const resetDocument = () => {
@@ -549,6 +591,8 @@ export default function App() {
     if (!window.confirm("确定要清空当前文档并恢复示例内容吗？")) return;
     editor.commands.setContent(INITIAL_DOCUMENT, { emitUpdate: true });
     setDocumentTitle("公式文档");
+    setFidelityMode(false);
+    fidelityMetaRef.current = null;
     localStorage.setItem(DOCUMENT_TITLE_KEY, "公式文档");
     showToast("文档已重置。", "info");
   };
@@ -782,6 +826,18 @@ export default function App() {
             <span className="toolbar-tip">选中文本后按 Ctrl + Enter</span>
           </div>
 
+          {fidelityMode ? (
+            <div className="fidelity-banner">
+              <div>
+                <strong>保真导出模式</strong>
+                <span>表格、图片、批注、页眉页脚和页面布局会原样保留；当前只回写公式修改。</span>
+              </div>
+              <button type="button" className="secondary-button" onClick={switchToNormalExport}>
+                切换普通导出
+              </button>
+            </div>
+          ) : null}
+
           <div className="paper-wrap">
             <article className="paper">
               <EditorContent editor={editor} />
@@ -839,6 +895,7 @@ export default function App() {
     </div>
   );
 }
+
 
 
 

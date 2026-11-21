@@ -1,4 +1,4 @@
-import { createClient, type User } from "@supabase/supabase-js";
+import type { SupabaseClient, User } from "@supabase/supabase-js";
 import type { JSONContent } from "@tiptap/core";
 
 const supabaseUrl = String(import.meta.env.VITE_SUPABASE_URL ?? "").trim();
@@ -6,15 +6,23 @@ const supabaseKey = String(import.meta.env.VITE_SUPABASE_ANON_KEY ?? "").trim();
 
 export const cloudConfigured = Boolean(supabaseUrl && supabaseKey);
 
-export const supabase = cloudConfigured
-  ? createClient(supabaseUrl, supabaseKey, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-        detectSessionInUrl: true
-      }
-    })
-  : null;
+let clientPromise: Promise<SupabaseClient> | null = null;
+
+export async function getSupabaseClient(): Promise<SupabaseClient> {
+  if (!cloudConfigured) throw new Error("Supabase 尚未配置。");
+  if (!clientPromise) {
+    clientPromise = import("@supabase/supabase-js").then(({ createClient }) =>
+      createClient(supabaseUrl, supabaseKey, {
+        auth: {
+          persistSession: true,
+          autoRefreshToken: true,
+          detectSessionInUrl: true
+        }
+      })
+    );
+  }
+  return clientPromise;
+}
 
 export interface CloudDocumentSummary {
   id: string;
@@ -33,13 +41,9 @@ export interface SharedCloudDocument {
   updated_at: string;
 }
 
-function client() {
-  if (!supabase) throw new Error("Supabase 尚未配置。");
-  return supabase;
-}
-
 export async function getCloudUser(): Promise<User | null> {
-  if (!supabase) return null;
+  if (!cloudConfigured) return null;
+  const supabase = await getSupabaseClient();
   const { data, error } = await supabase.auth.getUser();
   if (error) return null;
   return data.user;
@@ -47,7 +51,8 @@ export async function getCloudUser(): Promise<User | null> {
 
 export async function sendCloudLoginLink(email: string): Promise<void> {
   const redirectTo = `${window.location.origin}${window.location.pathname}`;
-  const { error } = await client().auth.signInWithOtp({
+  const supabase = await getSupabaseClient();
+  const { error } = await supabase.auth.signInWithOtp({
     email,
     options: { emailRedirectTo: redirectTo }
   });
@@ -55,12 +60,14 @@ export async function sendCloudLoginLink(email: string): Promise<void> {
 }
 
 export async function signOutCloud(): Promise<void> {
-  const { error } = await client().auth.signOut();
+  const supabase = await getSupabaseClient();
+  const { error } = await supabase.auth.signOut();
   if (error) throw error;
 }
 
 export async function listCloudDocuments(): Promise<CloudDocumentSummary[]> {
-  const { data, error } = await client()
+  const supabase = await getSupabaseClient();
+  const { data, error } = await supabase
     .from("documents")
     .select("id,title,updated_at")
     .order("updated_at", { ascending: false });
@@ -69,7 +76,8 @@ export async function listCloudDocuments(): Promise<CloudDocumentSummary[]> {
 }
 
 export async function createCloudDocument(title: string, content: JSONContent): Promise<CloudDocument> {
-  const { data, error } = await client()
+  const supabase = await getSupabaseClient();
+  const { data, error } = await supabase
     .from("documents")
     .insert({ title, content })
     .select("id,title,content,updated_at")
@@ -79,7 +87,8 @@ export async function createCloudDocument(title: string, content: JSONContent): 
 }
 
 export async function updateCloudDocument(id: string, title: string, content: JSONContent): Promise<CloudDocument> {
-  const { data, error } = await client()
+  const supabase = await getSupabaseClient();
+  const { data, error } = await supabase
     .from("documents")
     .update({ title, content })
     .eq("id", id)
@@ -90,7 +99,8 @@ export async function updateCloudDocument(id: string, title: string, content: JS
 }
 
 export async function getCloudDocument(id: string): Promise<CloudDocument> {
-  const { data, error } = await client()
+  const supabase = await getSupabaseClient();
+  const { data, error } = await supabase
     .from("documents")
     .select("id,title,content,updated_at")
     .eq("id", id)
@@ -100,12 +110,14 @@ export async function getCloudDocument(id: string): Promise<CloudDocument> {
 }
 
 export async function deleteCloudDocument(id: string): Promise<void> {
-  const { error } = await client().from("documents").delete().eq("id", id);
+  const supabase = await getSupabaseClient();
+  const { error } = await supabase.from("documents").delete().eq("id", id);
   if (error) throw error;
 }
 
 export async function createCloudShare(documentId: string): Promise<string> {
-  const { data, error } = await client()
+  const supabase = await getSupabaseClient();
+  const { data, error } = await supabase
     .from("document_shares")
     .insert({ document_id: documentId })
     .select("token")
@@ -115,7 +127,8 @@ export async function createCloudShare(documentId: string): Promise<string> {
 }
 
 export async function getSharedCloudDocument(token: string): Promise<SharedCloudDocument | null> {
-  const { data, error } = await client().rpc("get_shared_document", {
+  const supabase = await getSupabaseClient();
+  const { data, error } = await supabase.rpc("get_shared_document", {
     share_token: token
   });
   if (error) throw error;

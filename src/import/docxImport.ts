@@ -177,8 +177,8 @@ export async function importDocx(source: ArrayBuffer | Blob): Promise<DocxImport
   const imageCount = allElements.filter((element) => ["drawing", "pict"].includes(element.localName)).length;
   const warnings: string[] = [];
 
-  if (tableCount > 0) warnings.push(`检测到 ${tableCount} 个表格，目前会导入单元格文字，但表格结构不会保留。`);
-  if (imageCount > 0) warnings.push(`检测到 ${imageCount} 个图片或绘图对象，当前版本不会导入图片。`);
+  if (tableCount > 0) warnings.push(`检测到 ${tableCount} 个表格：编辑器中只显示单元格文字，保真导出会保留原表格结构。`);
+  if (imageCount > 0) warnings.push(`检测到 ${imageCount} 个图片或绘图对象：编辑器中不显示，保真导出会保留原图片。`);
   if (formulaCount > 0) warnings.push(`已导入 ${formulaCount} 个 OMML 公式，导出时会保留原始 OMML。`);
 
   const coreFile = zip.file("docProps/core.xml");

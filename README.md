@@ -113,3 +113,11 @@ src/
 - Share links backed by `get_shared_document` and unguessable tokens
 - Local developer setup is in `supabase/README.md` and `supabase/schema.sql`
 - GitHub Actions reads `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from repository variables
+
+## Word fidelity and code splitting
+
+- DOCX import now keeps the original DOCX package in memory for faithful export.
+- Faithful export patches edited OMML formulas directly inside `word/document.xml`.
+- Tables, images, comments, headers/footers and complex page layout remain in the original package.
+- Text changes are not written in faithful mode; use "切换普通导出" for that.
+- MathLive, Supabase, JSZip, DOCX import/export and KaTeX are split into separate production chunks.

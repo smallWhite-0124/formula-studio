@@ -1,4 +1,3 @@
-import "mathlive";
 import type { MathfieldElement } from "mathlive";
 import React, { useEffect, useRef } from "react";
 
@@ -19,6 +18,10 @@ export function MathLivePreview({
 }: MathLivePreviewProps) {
   const fieldRef = useRef<MathfieldElement | null>(null);
   const lastSyncKeyRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    void import("mathlive");
+  }, []);
 
   useEffect(() => {
     const field = fieldRef.current;
