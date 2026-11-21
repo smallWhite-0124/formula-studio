@@ -45,7 +45,16 @@ const OPERATOR_LATEX: Record<string, string> = {
   "≥": "\\ge",
   "≠": "\\ne",
   "×": "\\times",
-  "÷": "\\div"
+  "÷": "\\div",
+  "∂": "\\partial",
+  "∇": "\\nabla",
+  "∞": "\\infty",
+  "±": "\\pm",
+  "∓": "\\mp",
+  "⋯": "\\cdots",
+  "⋮": "\\vdots",
+  "⋱": "\\ddots",
+  "′": "'"
 };
 
 const NARY_LATEX: Record<string, string> = {
@@ -72,16 +81,27 @@ const FUNCTION_LATEX: Record<string, string> = {
   det: "\\det"
 };
 
+const ACCENT_LATEX: Record<string, string> = {
+  vec: "vec",
+  hat: "hat",
+  bar: "bar",
+  tilde: "tilde",
+  dot: "dot",
+  ddot: "ddot",
+  overline: "overline",
+  underline: "underline",
+  overbrace: "overbrace",
+  underbrace: "underbrace"
+};
+
 function escapeLatex(value: string): string {
   return value.replace(/[{}_%#&$]/g, (char) => `\\${char}`);
 }
 
 function symbolToLatex(text: string, role?: string): string {
   if (!text) return "";
-  if (GREEK_LATEX[text]) return GREEK_LATEX[text];
-  if (OPERATOR_LATEX[text]) return OPERATOR_LATEX[text];
-  if (NARY_LATEX[text]) return NARY_LATEX[text];
-  if (FUNCTION_LATEX[text]) return FUNCTION_LATEX[text];
+  const command = GREEK_LATEX[text] ?? OPERATOR_LATEX[text] ?? NARY_LATEX[text] ?? FUNCTION_LATEX[text];
+  if (command) return command.startsWith("\\") ? `${command} ` : command;
   if (role === "number") return text;
   if (text.length === 1) return escapeLatex(text);
   if (/^[A-Za-z]+$/.test(text)) return `\\operatorname{${escapeLatex(text)}}`;
@@ -96,6 +116,10 @@ function render(node: MathNode): string {
       return symbolToLatex(node.text, node.role);
     case "frac":
       return `\\frac{${render(node.numerator)}}{${render(node.denominator)}}`;
+    case "binom":
+      return `\\binom{${render(node.top)}}{${render(node.bottom)}}`;
+    case "accent":
+      return `\\${ACCENT_LATEX[node.accent]}{${render(node.body)}}`;
     case "sup":
       return `{${render(node.base)}}^{${render(node.sup)}}`;
     case "sub":
@@ -118,6 +142,22 @@ function render(node: MathNode): string {
       return `\\left${escapeLatex(node.left ?? "(")}${body}\\right${escapeLatex(node.right ?? ")")}`;
     }
     case "matrix": {
+      const body = node.rows
+        .map((row) => row.map((cell) => render(cell)).join(" & "))
+        .join(" \\\\ ");
+
+      if (node.kind === "matrix" && node.columnLines && node.columnLines.length > 0) {
+        const columnCount = Math.max(...node.rows.map((row) => row.length), 1);
+        const spec: string[] = [];
+        for (let index = 0; index < columnCount; index += 1) {
+          spec.push("c");
+          if (node.columnLines.includes(index + 1) && index < columnCount - 1) spec.push("|");
+        }
+        const left = node.left === "[" ? "[" : node.left === "(" ? "(" : ".";
+        const right = node.right === "]" ? "]" : node.right === ")" ? ")" : ".";
+        return `\\left${left}\\begin{array}{${spec.join("")}}${body}\\end{array}\\right${right}`;
+      }
+
       const environment =
         node.kind === "cases"
           ? "cases"
@@ -128,15 +168,13 @@ function render(node: MathNode): string {
               : node.left === "("
                 ? "pmatrix"
                 : "matrix";
-      const body = node.rows
-        .map((row) => row.map((cell) => render(cell)).join(" & "))
-        .join(" \\\\ ");
       return `\\begin{${environment}}${body}\\end{${environment}}`;
     }
     case "align": {
       const rows = node.rows.map((row) => {
+        if (row.length > 1) return row.map(render).join(" & ");
         let replaced = false;
-        return render(row).replace(/=/g, (match) => {
+        return render(row[0]).replace(/=/g, (match) => {
           if (replaced) return match;
           replaced = true;
           return "&=";
@@ -158,5 +196,3 @@ function render(node: MathNode): string {
 export function toLatex(node: MathNode): string {
   return render(node);
 }
-
-

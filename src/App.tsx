@@ -62,7 +62,11 @@ const EXAMPLES = [
   "integral(0,1){f(x)dx}",
   "matrix(a,b;c,d)",
   "cases(x^2,x>=0;-x,x<0)",
-  "align(x=1;y=2)"
+  "align(x&=1;y&=2)",
+  "f'(x) + partial f / partial x",
+  "vec(a) + hat(x) + bar(y)",
+  "binom(n,k)",
+  "augmatrix(1,2|3;4,5|6)"
 ];
 const INITIAL_DOCUMENT = `
   <h1>公式工坊</h1>

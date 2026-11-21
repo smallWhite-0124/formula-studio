@@ -53,6 +53,33 @@ const GREEK: Record<string, string> = {
   Omega: "Ω"
 };
 
+const SPECIAL_SYMBOLS: Record<string, string> = {
+  partial: "∂",
+  nabla: "∇",
+  infty: "∞",
+  infinity: "∞",
+  cdots: "⋯",
+  vdots: "⋮",
+  ddots: "⋱",
+  times: "×",
+  cdot: "·",
+  pm: "±",
+  mp: "∓"
+};
+
+const ACCENT_NAMES = new Set([
+  "vec",
+  "hat",
+  "bar",
+  "tilde",
+  "dot",
+  "ddot",
+  "overline",
+  "underline",
+  "overbrace",
+  "underbrace"
+]);
+
 const NARY_NAMES = new Set(["sum", "prod", "int", "iint", "oint"]);
 const ADD_OPERATORS = new Set(["+", "-", "=", "<", ">", "->", "<=", ">=", "!="]);
 const FUNCTIONS = new Set(["sin", "cos", "tan", "cot", "sec", "csc", "log", "ln", "exp", "max", "min", "lim", "abs", "det"]);
@@ -65,6 +92,7 @@ const MATRIX_NAMES: Record<string, { kind: "matrix" | "cases"; left: string; rig
   bmatrix: { kind: "matrix", left: "[", right: "]" },
   vmatrix: { kind: "matrix", left: "|", right: "|" },
   mat: { kind: "matrix", left: "(", right: ")" },
+  augmatrix: { kind: "matrix", left: "[", right: "]" },
   cases: { kind: "cases", left: "{", right: "" }
 };
 
@@ -198,7 +226,14 @@ class FormulaParser {
 
       if (this.checkOp("/")) {
         this.consume();
-        node = { type: "frac", numerator: node, denominator: this.parseUnary() };
+        const firstDenominator = this.parseUnary();
+        if (firstDenominator.type === "symbol" && firstDenominator.text === "∂") {
+          const factors: MathNode[] = [firstDenominator];
+          while (this.startsPrimary(this.peek())) factors.push(this.parseUnary());
+          node = { type: "frac", numerator: node, denominator: row(factors) };
+        } else {
+          node = { type: "frac", numerator: node, denominator: firstDenominator };
+        }
         continue;
       }
 
@@ -231,12 +266,23 @@ class FormulaParser {
     let base = this.parsePrimary();
     let sub: MathNode | undefined;
     let sup: MathNode | undefined;
+    let primeCount = 0;
+
+    while (this.checkOp("'")) {
+      this.consume();
+      primeCount += 1;
+    }
 
     while (this.checkOp("_") || this.checkOp("^")) {
       const operator = this.consume().value;
       const operand = this.parseScriptOperand();
       if (operator === "_") sub = operand;
       else sup = operand;
+    }
+
+    if (primeCount > 0) {
+      const primes = this.symbol("′".repeat(primeCount), "operator");
+      sup = sup ? row([sup, primes]) : primes;
     }
 
     const naryName = base.type === "symbol" ? normalizeNaryName(base.text) : null;
@@ -302,6 +348,35 @@ class FormulaParser {
         return this.symbol(naryName, "ident");
       }
 
+      if (ACCENT_NAMES.has(rawName) && this.isGroupStart(this.peek())) {
+        return {
+          type: "accent",
+          accent: rawName as "vec" | "hat" | "bar" | "tilde" | "dot" | "ddot" | "overline" | "underline" | "overbrace" | "underbrace",
+          body: this.parseDelimited().body
+        };
+      }
+
+      if (rawName === "binom" && this.isGroupStart(this.peek())) {
+        if (this.checkPunct("(")) {
+          this.consume();
+          const top = this.parseAdd();
+          this.expectPunct(",");
+          const bottom = this.parseAdd();
+          this.expectPunct(")");
+          return { type: "binom", top, bottom };
+        }
+        const top = this.parseDelimited().body;
+        if (!this.isGroupStart(this.peek())) {
+          throw new FormulaParseError("binom 需要上下两个用括号包起来的部分", this.peek().position);
+        }
+        const bottom = this.parseDelimited().body;
+        return { type: "binom", top, bottom };
+      }
+
+      if (SPECIAL_SYMBOLS[rawName]) {
+        return this.symbol(SPECIAL_SYMBOLS[rawName], "ident");
+      }
+
       const matrixDefinition = MATRIX_NAMES[rawName];
       if (matrixDefinition && this.checkPunct("(")) {
         return this.parseMatrix(matrixDefinition);
@@ -342,6 +417,7 @@ class FormulaParser {
   private parseMatrix(definition: { kind: "matrix" | "cases"; left: string; right: string }): MathNode {
     this.expectPunct("(");
     const rows: MathNode[][] = [];
+    const columnLines = new Set<number>();
     let currentRow: MathNode[] = [];
 
     if (this.checkPunct(")")) {
@@ -350,6 +426,12 @@ class FormulaParser {
 
     while (true) {
       currentRow.push(this.parseAdd());
+
+      if (this.checkPunct("|")) {
+        this.consume();
+        columnLines.add(currentRow.length);
+        continue;
+      }
 
       if (this.checkPunct(",")) {
         this.consume();
@@ -369,7 +451,7 @@ class FormulaParser {
         break;
       }
 
-      throw new FormulaParseError("矩阵单元格之间请使用逗号，行之间使用分号", this.peek().position);
+      throw new FormulaParseError("矩阵单元格之间请使用逗号，行之间使用分号，竖线表示分隔列", this.peek().position);
     }
 
     return {
@@ -377,28 +459,46 @@ class FormulaParser {
       rows,
       kind: definition.kind,
       left: definition.left,
-      right: definition.right
+      right: definition.right,
+      columnLines: [...columnLines].sort((a, b) => a - b)
     };
   }
 
   private parseAlign(): MathNode {
     this.expectPunct("(");
-    const rows: MathNode[] = [];
+    const rows: MathNode[][] = [];
+    let currentRow: MathNode[] = [];
     if (this.checkPunct(")")) {
       throw new FormulaParseError("多行对齐公式不能为空", this.peek().position);
     }
 
     while (true) {
-      rows.push(this.parseAdd());
-      if (this.checkPunct(";")) {
+      if (this.checkOp("=")) {
+        this.consume();
+        currentRow.push(row([this.symbol("=", "operator"), this.parseAdd()]));
+      } else {
+        currentRow.push(this.parseAdd());
+      }
+
+      if (this.checkOp("&")) {
         this.consume();
         continue;
       }
+
+      if (this.checkPunct(";")) {
+        this.consume();
+        rows.push(currentRow);
+        currentRow = [];
+        continue;
+      }
+
       if (this.checkPunct(")")) {
         this.consume();
+        rows.push(currentRow);
         break;
       }
-      throw new FormulaParseError("多行对齐公式请使用分号分隔每一行", this.peek().position);
+
+      throw new FormulaParseError("多行对齐公式请使用 & 分隔对齐列，使用分号分隔行", this.peek().position);
     }
 
     return { type: "align", rows };
@@ -495,6 +595,14 @@ export function attachNaryBodies(node: MathNode): MathNode {
     return { ...node, numerator: attachNaryBodies(node.numerator), denominator: attachNaryBodies(node.denominator) };
   }
 
+  if (node.type === "binom") {
+    return { ...node, top: attachNaryBodies(node.top), bottom: attachNaryBodies(node.bottom) };
+  }
+
+  if (node.type === "accent") {
+    return { ...node, body: attachNaryBodies(node.body) };
+  }
+
   if (node.type === "sup") return { ...node, base: attachNaryBodies(node.base), sup: attachNaryBodies(node.sup) };
   if (node.type === "sub") return { ...node, base: attachNaryBodies(node.base), sub: attachNaryBodies(node.sub) };
   if (node.type === "subsup") {
@@ -522,7 +630,7 @@ export function attachNaryBodies(node: MathNode): MathNode {
   }
 
   if (node.type === "align") {
-    return { ...node, rows: node.rows.map(attachNaryBodies) };
+    return { ...node, rows: node.rows.map((row) => row.map(attachNaryBodies)) };
   }
 
   if (node.type === "func") return { ...node, argument: attachNaryBodies(node.argument) };

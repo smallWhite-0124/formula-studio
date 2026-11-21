@@ -4,6 +4,12 @@ export type MathNode =
   | { type: "row"; children: MathNode[] }
   | { type: "symbol"; text: string; role?: SymbolRole }
   | { type: "frac"; numerator: MathNode; denominator: MathNode }
+  | { type: "binom"; top: MathNode; bottom: MathNode }
+  | {
+      type: "accent";
+      accent: "vec" | "hat" | "bar" | "tilde" | "dot" | "ddot" | "overline" | "underline" | "overbrace" | "underbrace";
+      body: MathNode;
+    }
   | { type: "sup"; base: MathNode; sup: MathNode }
   | { type: "sub"; base: MathNode; sub: MathNode }
   | { type: "subsup"; base: MathNode; sub: MathNode; sup: MathNode }
@@ -22,8 +28,9 @@ export type MathNode =
       kind: "matrix" | "cases";
       left?: string;
       right?: string;
+      columnLines?: number[];
     }
-  | { type: "align"; rows: MathNode[] }
+  | { type: "align"; rows: MathNode[][] }
   | { type: "func"; name: string; argument: MathNode };
 
 export interface FormulaTemplate {

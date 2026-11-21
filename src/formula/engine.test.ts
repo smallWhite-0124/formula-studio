@@ -48,7 +48,7 @@ describe("linear formula parser", () => {
     const converted = mathLiveLatexToLinear("\\begin{aligned}x&=1 \\\\ y&=2\\end{aligned}");
     expect(aligned.latex).toContain("\\begin{aligned}");
     expect(aligned.latex).toContain("&=");
-    expect(converted).toBe("align(x=1;y=2)");
+    expect(converted).toBe("align(x&=1;y&=2)");
     expect(toOmml(aligned.ast)).toContain("<m:eqArr>");
   });
 
@@ -59,6 +59,35 @@ describe("linear formula parser", () => {
     expect(cases).toBe("cases({x}^{2},x>=0;-x,x<0)");
     expect(() => parseFormula(matrix)).not.toThrow();
     expect(() => parseFormula(cases)).not.toThrow();
+  });
+
+  it("supports primes, partial derivatives and accents", () => {
+    const derivatives = parseFormula("f'(x) + f''(y) + partial f / partial x");
+    const accents = parseFormula("vec(a) + hat(x) + bar(y) + overbrace(z)");
+    expect(derivatives.latex).toContain("'");
+    expect(derivatives.latex).toContain("\\partial f");
+    expect(derivatives.latex).toContain("\\partial x");
+    expect(accents.latex).toContain("\\vec{a}");
+    expect(accents.latex).toContain("\\hat{x}");
+    expect(accents.latex).toContain("\\bar{y}");
+    expect(accents.latex).toContain("\\overbrace{z}");
+    expect(toOmml(accents.ast)).toContain("<m:acc>");
+  });
+
+  it("supports binomials and augmented matrices", () => {
+    const binom = parseFormula("binom(n,k)");
+    const augmented = parseFormula("augmatrix(1,2|3;4,5|6)");
+    expect(binom.latex).toContain("\\binom{n}{k}");
+    expect(toOmml(binom.ast)).toContain('m:type m:val="noBar"');
+    expect(augmented.latex).toContain("\\begin{array}{cc|c}");
+    expect(augmented.latex).toContain("1 & 2 & 3");
+  });
+
+  it("supports explicit alignment points", () => {
+    const aligned = parseFormula("align(x&=1;y&=2)");
+    expect(aligned.latex).toContain("\\begin{aligned}");
+    expect(aligned.latex).toContain("x & =1");
+    expect(toOmml(aligned.ast)).toContain("<m:eqArr>");
   });
 
   it("parses matrix and cases structures", () => {
@@ -127,6 +156,7 @@ describe("OMML and DOCX", () => {
     expect(coreXml).toContain("测试文档");
   });
 });
+
 
 
 

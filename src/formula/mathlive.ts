@@ -16,7 +16,7 @@ function convertMatrixBody(environment: string, body: string): string {
     .filter(Boolean)
     .map((row) => {
       const cells = row.split("&").map((cell) => cell.trim());
-      return name === "align" ? cells.join("") : cells.join(",");
+      return name === "align" ? cells.join("&") : cells.join(",");
     });
   return `${name}(${rows.join(";")})`;
 }
@@ -54,5 +54,6 @@ export function mathLiveLatexToLinear(latex: string): string {
 
   return value.trim();
 }
+
 
 

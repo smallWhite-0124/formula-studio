@@ -93,8 +93,17 @@ function renderOmmlElement(element: Element): string {
       const text = childrenNamed(element, "t").map((node) => node.textContent ?? "").join("");
       return /[\s\u3400-\u9FFF]/.test(text) ? `\\text{${text.replace(/[{}]/g, "")}}` : escapeLatexText(text);
     }
-    case "f":
-      return `\\frac{${firstChild(element, "num") ? renderContainer(firstChild(element, "num")!) : ""}}{${firstChild(element, "den") ? renderContainer(firstChild(element, "den")!) : ""}}`;
+    case "f": {
+      const fractionProperties = firstChild(element, "fPr");
+      const fractionType = attr(firstChild(fractionProperties ?? element, "type"), "val");
+      const top = firstChild(element, "num");
+      const bottom = firstChild(element, "den");
+      const topLatex = top ? renderContainer(top) : "";
+      const bottomLatex = bottom ? renderContainer(bottom) : "";
+      return fractionType === "noBar"
+        ? `\\binom{${topLatex}}{${bottomLatex}}`
+        : `\\frac{${topLatex}}{${bottomLatex}}`;
+    }
     case "sSup": {
       const base = firstChild(element, "e");
       const sup = firstChild(element, "sup");
@@ -155,10 +164,18 @@ function renderOmmlElement(element: Element): string {
       const rows = childrenNamed(element, "e").map(renderContainer);
       return `\\begin{aligned}${rows.join(" \\\\ ")}\\end{aligned}`;
     }
+    case "groupChr": {
+      const properties = firstChild(element, "groupChrPr");
+      const char = attr(firstChild(properties ?? element, "chr"), "val");
+      const body = firstChild(element, "e");
+      const latex = body ? renderContainer(body) : "";
+      if (char === "⏞") return `\\overbrace{${latex}}`;
+      if (char === "⏟") return `\\underbrace{${latex}}`;
+      return latex;
+    }
     case "box":
     case "borderBox":
     case "phant":
-    case "groupChr":
       return firstChild(element, "e") ? renderContainer(firstChild(element, "e")!) : renderContainer(element);
     case "t":
       return escapeLatexText(element.textContent ?? "");

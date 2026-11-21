@@ -121,3 +121,14 @@ src/
 - Tables, images, comments, headers/footers and complex page layout remain in the original package.
 - Text changes are not written in faithful mode; use "切换普通导出" for that.
 - MathLive, Supabase, JSZip, DOCX import/export and KaTeX are split into separate production chunks.
+
+## Additional formula constructs
+
+- Derivatives: `f'(x)`, `f''(x)`
+- Partial derivatives: `partial f / partial x`
+- Del operator: `nabla f`
+- Accents: `vec(a)`, `hat(x)`, `bar(y)`, `tilde(x)`, `dot(x)`, `ddot(x)`
+- Extensible marks: `overline(x)`, `underline(x)`, `overbrace(x)`, `underbrace(x)`
+- Binomials: `binom(n,k)`
+- Augmented matrices: `augmatrix(1,2|3;4,5|6)`
+- Explicit alignment: `align(x&=1;y&=2)`

@@ -62,6 +62,31 @@ function render(node: MathNode): string {
       return run(node.text, node.role);
     case "frac":
       return `<m:f><m:num>${render(node.numerator)}</m:num><m:den>${render(node.denominator)}</m:den></m:f>`;
+    case "binom":
+      return delimiter(
+        "(",
+        ")",
+        `<m:f><m:fPr><m:type m:val="noBar"/></m:fPr><m:num>${render(node.top)}</m:num><m:den>${render(node.bottom)}</m:den></m:f>`
+      );
+    case "accent": {
+      if (node.accent === "bar" || node.accent === "overline" || node.accent === "underline") {
+        const position = node.accent === "underline" ? "bot" : "top";
+        return `<m:bar><m:barPr><m:pos m:val="${position}"/></m:barPr><m:e>${render(node.body)}</m:e></m:bar>`;
+      }
+      if (node.accent === "overbrace" || node.accent === "underbrace") {
+        const position = node.accent === "underbrace" ? "bot" : "top";
+        const chr = node.accent === "underbrace" ? "⏟" : "⏞";
+        return `<m:groupChr><m:groupChrPr><m:chr m:val="${chr}"/><m:pos m:val="${position}"/></m:groupChrPr><m:e>${render(node.body)}</m:e></m:groupChr>`;
+      }
+      const chr: Record<string, string> = {
+        vec: "→",
+        hat: "^",
+        tilde: "~",
+        dot: "˙",
+        ddot: "¨"
+      };
+      return `<m:acc><m:accPr><m:chr m:val="${chr[node.accent]}"/></m:accPr><m:e>${render(node.body)}</m:e></m:acc>`;
+    }
     case "sup":
       return `<m:sSup><m:e>${render(node.base)}</m:e><m:sup>${render(node.sup)}</m:sup></m:sSup>`;
     case "sub":
@@ -97,7 +122,7 @@ function render(node: MathNode): string {
     }
     case "align": {
       return `<m:eqArr>${node.rows
-        .map((row) => `<m:e>${render(row)}</m:e>`)
+        .map((row) => `<m:e>${row.map(render).join(run("  "))}</m:e>`)
         .join("")}</m:eqArr>`;
     }
     case "func": {
