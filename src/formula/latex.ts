@@ -133,6 +133,17 @@ function render(node: MathNode): string {
         .join(" \\\\ ");
       return `\\begin{${environment}}${body}\\end{${environment}}`;
     }
+    case "align": {
+      const rows = node.rows.map((row) => {
+        let replaced = false;
+        return render(row).replace(/=/g, (match) => {
+          if (replaced) return match;
+          replaced = true;
+          return "&=";
+        });
+      });
+      return `\\begin{aligned}${rows.join(" \\\\ ")}\\end{aligned}`;
+    }
     case "func": {
       const argument = render(node.argument);
       if (node.name === "abs") return `\\left|${argument}\\right|`;
@@ -147,4 +158,5 @@ function render(node: MathNode): string {
 export function toLatex(node: MathNode): string {
   return render(node);
 }
+
 

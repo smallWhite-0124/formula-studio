@@ -42,7 +42,11 @@ function inlineToXml(node: JSONContent): string {
   if (node.type === "hardBreak") return "<w:r><w:br/></w:r>";
   if (node.type === "formula") {
     const omml = String(node.attrs?.omml ?? "");
-    if (omml) return `<m:oMath>${omml}</m:oMath>`;
+    if (omml) {
+      return node.attrs?.displayMode
+        ? `<m:oMathPara><m:oMath>${omml}</m:oMath></m:oMathPara>`
+        : `<m:oMath>${omml}</m:oMath>`;
+    }
     return textRun(String(node.attrs?.source ?? "[formula]"));
   }
   if (node.content) return node.content.map(inlineToXml).join("");
@@ -207,3 +211,4 @@ export function downloadBlob(blob: Blob, filename: string): void {
   anchor.click();
   setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
+

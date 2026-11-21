@@ -8,28 +8,31 @@ export interface FormulaAttrs {
   source: string;
   latex: string;
   omml: string;
+  displayMode: boolean;
 }
 
 export interface FormulaEditDetail {
   position: number;
   source: string;
+  displayMode: boolean;
 }
 
 function FormulaNodeView(props: NodeViewProps) {
   const source = String(props.node.attrs.source ?? "");
   const latex = String(props.node.attrs.latex ?? "");
+  const displayMode = Boolean(props.node.attrs.displayMode ?? false);
   const html = useMemo(() => {
     try {
       return katex.renderToString(latex, {
         throwOnError: true,
-        displayMode: false,
+        displayMode,
         strict: false,
         output: "html"
       });
     } catch {
       return "";
     }
-  }, [latex]);
+  }, [latex, displayMode]);
 
   const getPosition = () => {
     const position = props.getPos();
@@ -48,7 +51,7 @@ function FormulaNodeView(props: NodeViewProps) {
     selectFormula();
     window.dispatchEvent(
       new CustomEvent<FormulaEditDetail>("formula:edit", {
-        detail: { position, source }
+        detail: { position, source, displayMode }
       })
     );
   };
@@ -74,7 +77,7 @@ function FormulaNodeView(props: NodeViewProps) {
   return (
     <NodeViewWrapper
       as="span"
-      className="formula-node"
+      className={`formula-node${displayMode ? " formula-node-block" : ""}`}
       contentEditable={false}
       data-formula-node="true"
       title="单击选中公式；双击编辑；右侧按钮可还原源码"
@@ -131,7 +134,8 @@ export const FormulaNode = Node.create({
     return {
       source: { default: "" },
       latex: { default: "" },
-      omml: { default: "" }
+      omml: { default: "" },
+      displayMode: { default: false }
     };
   },
 
@@ -144,7 +148,8 @@ export const FormulaNode = Node.create({
           return {
             source: htmlElement.getAttribute("data-source") ?? "",
             latex: htmlElement.getAttribute("data-latex") ?? "",
-            omml: htmlElement.getAttribute("data-omml") ?? ""
+            omml: htmlElement.getAttribute("data-omml") ?? "",
+            displayMode: htmlElement.getAttribute("data-display-mode") === "true"
           };
         }
       }
@@ -159,6 +164,7 @@ export const FormulaNode = Node.create({
         "data-source": HTMLAttributes.source,
         "data-latex": HTMLAttributes.latex,
         "data-omml": HTMLAttributes.omml,
+        "data-display-mode": String(Boolean(HTMLAttributes.displayMode)),
         class: "formula-node"
       }),
       HTMLAttributes.source

@@ -17,6 +17,7 @@ import {
   Sparkles,
   Trash2,
   Undo2,
+  Upload,
   WandSparkles
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -25,6 +26,7 @@ import { MathLivePreview } from "./components/MathLivePreview";
 import { TemplateDialog } from "./components/TemplateDialog";
 import { FormulaNode, type FormulaEditDetail } from "./editor/FormulaNode";
 import { buildDocxBlob, downloadBlob } from "./export/docx";
+import { importDocx } from "./import/docxImport";
 import { toOmml } from "./formula/omml";
 import { parseFormula } from "./formula/parser";
 import { builtInTemplates } from "./formula/templates";
@@ -32,13 +34,15 @@ import type { FormulaTemplate, ParsedFormula } from "./formula/types";
 
 const CUSTOM_TEMPLATES_KEY = "formula-studio:custom-templates:v1";
 const DOCUMENT_KEY = "formula-studio:document:v1";
+const DOCUMENT_TITLE_KEY = 'formula-studio:document-title:v1';
 const INITIAL_SOURCE = "sigma(1,n){i^2} + a/b";
 const EXAMPLES = [
   "a/b + sqrt(x^2+1)",
   "sigma(1,n){i^2}",
   "integral(0,1){f(x)dx}",
   "matrix(a,b;c,d)",
-  "cases(x^2,x>=0;-x,x<0)"
+  "cases(x^2,x>=0;-x,x<0)",
+  "align(x=1;y=2)"
 ];
 const INITIAL_DOCUMENT = `
   <h1>公式工坊</h1>
@@ -82,12 +86,22 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function formulaAttrs(parsed: ParsedFormula) {
+function formulaAttrs(parsed: ParsedFormula, displayMode = false) {
   return {
     source: parsed.source,
     latex: parsed.latex,
-    omml: toOmml(parsed.ast)
+    omml: toOmml(parsed.ast),
+    displayMode
   };
+}
+
+function selectionCoversParagraph(editor: NonNullable<ReturnType<typeof useEditor>>, from: number, to: number): boolean {
+  const start = editor.state.doc.resolve(from);
+  const end = editor.state.doc.resolve(to);
+  if (start.parent !== end.parent || start.parent.type.name !== "paragraph") return false;
+  const selected = editor.state.doc.textBetween(from, to, "\n", "\n").trim();
+  const paragraph = start.parent.textBetween(0, start.parent.content.size, "\n", "\n").trim();
+  return selected.length > 0 && selected === paragraph;
 }
 
 function selectedFormula(editor: NonNullable<ReturnType<typeof useEditor>>) {
@@ -129,12 +143,16 @@ function ToolbarButton({ title, active = false, disabled = false, onClick, child
 
 export default function App() {
   const [customTemplates, setCustomTemplates] = useState<FormulaTemplate[]>(loadCustomTemplates);
+  const [documentTitle, setDocumentTitle] = useState(() => localStorage.getItem(DOCUMENT_TITLE_KEY) || '公式文档');
+  const [isImporting, setIsImporting] = useState(false);
   const [labSource, setLabSource] = useState(INITIAL_SOURCE);
+  const [insertDisplayMode, setInsertDisplayMode] = useState(false);
   const [editingFormula, setEditingFormula] = useState<FormulaEditDetail | null>(null);
   const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [, setRevision] = useState(0);
   const toastTimerRef = useRef<number | null>(null);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
   const convertRef = useRef<() => void>(() => {});
 
   const templates = useMemo(() => [...builtInTemplates, ...customTemplates], [customTemplates]);
@@ -144,10 +162,10 @@ export default function App() {
     templatesRef.current = templates;
   }, [templates]);
 
-  const showToast = useCallback((message: string, kind: ToastKind = "info") => {
+  const showToast = useCallback((message: string, kind: ToastKind = "info", duration = 3200) => {
     if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
     setToast({ message, kind });
-    toastTimerRef.current = window.setTimeout(() => setToast(null), 3200);
+    toastTimerRef.current = window.setTimeout(() => setToast(null), duration);
   }, []);
 
   useEffect(() => {
@@ -231,7 +249,7 @@ export default function App() {
           { from, to },
           {
             type: "formula",
-            attrs: formulaAttrs(parsed)
+            attrs: formulaAttrs(parsed, selectionCoversParagraph(editor, from, to))
           }
         )
         .run();
@@ -248,10 +266,15 @@ export default function App() {
 
 
   const insertFormula = useCallback(
-    (parsed: ParsedFormula) => {
+    (parsed: ParsedFormula, displayMode = false) => {
       if (!editor) return;
-      editor.chain().focus().insertContent({ type: "formula", attrs: formulaAttrs(parsed) }).insertContent(" ").run();
-      showToast("公式已插入文档。", "success");
+      editor
+        .chain()
+        .focus()
+        .insertContent({ type: "formula", attrs: formulaAttrs(parsed, displayMode) })
+        .insertContent(" ")
+        .run();
+      showToast(displayMode ? "独立公式已插入文档。" : "行内公式已插入文档。", "success");
     },
     [editor, showToast]
   );
@@ -268,7 +291,7 @@ export default function App() {
     showToast("OMML 已复制。", "success");
   };
 
-  const saveEditedFormula = (source: string, parsed: ParsedFormula) => {
+  const saveEditedFormula = (source: string, parsed: ParsedFormula, displayMode: boolean) => {
     if (!editor || !editingFormula) return;
     const node = editor.state.doc.nodeAt(editingFormula.position);
     if (!node || node.type.name !== "formula") {
@@ -280,7 +303,8 @@ export default function App() {
     const transaction = editor.state.tr.setNodeMarkup(editingFormula.position, undefined, {
       source,
       latex: parsed.latex,
-      omml: toOmml(parsed.ast)
+      omml: toOmml(parsed.ast),
+      displayMode
     });
     editor.view.dispatch(transaction);
     setEditingFormula(null);
@@ -303,11 +327,33 @@ export default function App() {
     showToast("模板已删除，已有公式不受影响。", "info");
   };
 
+  const handleDocxImport = async (file: File) => {
+    if (!editor) return;
+    setIsImporting(true);
+    try {
+      const result = await importDocx(file);
+      editor.commands.setContent(result.content, { emitUpdate: true });
+      setDocumentTitle(result.title);
+      localStorage.setItem(DOCUMENT_TITLE_KEY, result.title);
+      const warningText = result.warnings.length > 0 ? ` ${result.warnings.slice(0, 2).join(" ")}` : "";
+      showToast(
+        `已导入 ${result.paragraphCount} 个段落、${result.formulaCount} 个 OMML 公式。${warningText}`,
+        result.warnings.length > 0 ? "info" : "success",
+        6500
+      );
+    } catch (error) {
+      showToast(`导入失败：${errorMessage(error)}`, "error", 5000);
+    } finally {
+      setIsImporting(false);
+      if (importInputRef.current) importInputRef.current.value = "";
+    }
+  };
+
   const exportDocx = async () => {
     if (!editor) return;
     try {
       const document = editor.getJSON();
-      const title = firstHeadingText(document);
+      const title = documentTitle || firstHeadingText(document);
       const blob = await buildDocxBlob(document, title);
       const date = new Date().toISOString().slice(0, 10);
       downloadBlob(blob, `${title.replace(/[\\/:*?"<>|]/g, "-")}-${date}.docx`);
@@ -321,6 +367,8 @@ export default function App() {
     if (!editor) return;
     if (!window.confirm("确定要清空当前文档并恢复示例内容吗？")) return;
     editor.commands.setContent(INITIAL_DOCUMENT, { emitUpdate: true });
+    setDocumentTitle("公式文档");
+    localStorage.setItem(DOCUMENT_TITLE_KEY, "公式文档");
     showToast("文档已重置。", "info");
   };
 
@@ -350,6 +398,24 @@ export default function App() {
         </div>
 
         <div className="header-actions">
+          <input
+            ref={importInputRef}
+            type="file"
+            accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            hidden
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) void handleDocxImport(file);
+            }}
+          />
+          <button
+            type="button"
+            className="ghost-button"
+            disabled={isImporting}
+            onClick={() => importInputRef.current?.click()}
+          >
+            <Upload size={15} /> {isImporting ? "导入中…" : "导入 DOCX"}
+          </button>
           <button type="button" className="ghost-button" onClick={resetDocument}>
             <RotateCcw size={15} /> 重置
           </button>
@@ -378,7 +444,7 @@ export default function App() {
               onKeyDown={(event) => {
                 if ((event.ctrlKey || event.metaKey) && event.key === "Enter" && labResult.parsed) {
                   event.preventDefault();
-                  insertFormula(labResult.parsed);
+                  insertFormula(labResult.parsed, insertDisplayMode);
                 }
               }}
             />
@@ -409,12 +475,29 @@ export default function App() {
               <code>{labResult.parsed?.latex ?? "—"}</code>
             </div>
 
+            <div className="formula-mode-toggle lab-mode-toggle" role="group" aria-label="插入公式方式">
+              <button
+                type="button"
+                className={!insertDisplayMode ? "is-active" : ""}
+                onClick={() => setInsertDisplayMode(false)}
+              >
+                行内
+              </button>
+              <button
+                type="button"
+                className={insertDisplayMode ? "is-active" : ""}
+                onClick={() => setInsertDisplayMode(true)}
+              >
+                独立
+              </button>
+            </div>
+
             <div className="lab-actions">
               <button
                 type="button"
                 className="primary-button grow-button"
                 disabled={!labResult.parsed}
-                onClick={() => labResult.parsed && insertFormula(labResult.parsed)}
+                onClick={() => labResult.parsed && insertFormula(labResult.parsed, insertDisplayMode)}
               >
                 <Plus size={16} /> 插入到文档
               </button>
@@ -529,6 +612,7 @@ export default function App() {
         <FormulaEditorDialog
           title="编辑公式"
           initialSource={editingFormula.source}
+          initialDisplayMode={editingFormula.displayMode}
           templates={templates}
           onClose={() => setEditingFormula(null)}
           onSave={saveEditedFormula}
@@ -547,6 +631,10 @@ export default function App() {
     </div>
   );
 }
+
+
+
+
 
 
 

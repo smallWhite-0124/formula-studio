@@ -3,7 +3,8 @@ const MATRIX_ENVIRONMENTS: Record<string, string> = {
   pmatrix: "matrix",
   bmatrix: "bmatrix",
   vmatrix: "vmatrix",
-  cases: "cases"
+  cases: "cases",
+  aligned: "align"
 };
 
 function convertMatrixBody(environment: string, body: string): string {
@@ -13,12 +14,10 @@ function convertMatrixBody(environment: string, body: string): string {
     .split(/\\\\/)
     .map((row) => row.trim())
     .filter(Boolean)
-    .map((row) =>
-      row
-        .split("&")
-        .map((cell) => cell.trim())
-        .join(",")
-    );
+    .map((row) => {
+      const cells = row.split("&").map((cell) => cell.trim());
+      return name === "align" ? cells.join("") : cells.join(",");
+    });
   return `${name}(${rows.join(";")})`;
 }
 
@@ -32,7 +31,7 @@ export function mathLiveLatexToLinear(latex: string): string {
   let value = latex.trim();
 
   value = value.replace(
-    /\\begin\{(matrix|pmatrix|bmatrix|vmatrix|cases)\}([\s\S]*?)\\end\{\1\}/g,
+    /\\begin\{(matrix|pmatrix|bmatrix|vmatrix|cases|aligned)\}([\s\S]*?)\\end\{\1\}/g,
     (_match, environment: string, body: string) => convertMatrixBody(environment, body)
   );
 
@@ -55,3 +54,5 @@ export function mathLiveLatexToLinear(latex: string): string {
 
   return value.trim();
 }
+
+

@@ -23,6 +23,7 @@ export type MathNode =
       left?: string;
       right?: string;
     }
+  | { type: "align"; rows: MathNode[] }
   | { type: "func"; name: string; argument: MathNode };
 
 export interface FormulaTemplate {
@@ -69,4 +70,5 @@ export function row(children: MathNode[]): MathNode {
 
   return flattened.length === 1 ? flattened[0] : { type: "row", children: flattened };
 }
+
 

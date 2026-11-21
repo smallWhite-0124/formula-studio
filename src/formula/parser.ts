@@ -57,6 +57,8 @@ const NARY_NAMES = new Set(["sum", "prod", "int", "iint", "oint"]);
 const ADD_OPERATORS = new Set(["+", "-", "=", "<", ">", "->", "<=", ">=", "!="]);
 const FUNCTIONS = new Set(["sin", "cos", "tan", "cot", "sec", "csc", "log", "ln", "exp", "max", "min", "lim", "abs", "det"]);
 
+const ALIGN_NAMES = new Set(["align", "aligned", "eqarr"]);
+
 const MATRIX_NAMES: Record<string, { kind: "matrix" | "cases"; left: string; right: string }> = {
   matrix: { kind: "matrix", left: "(", right: ")" },
   pmatrix: { kind: "matrix", left: "(", right: ")" },
@@ -305,6 +307,10 @@ class FormulaParser {
         return this.parseMatrix(matrixDefinition);
       }
 
+      if (ALIGN_NAMES.has(rawName) && this.checkPunct("(")) {
+        return this.parseAlign();
+      }
+
       if (GREEK[rawName]) {
         return this.symbol(GREEK[rawName], "ident");
       }
@@ -373,6 +379,29 @@ class FormulaParser {
       left: definition.left,
       right: definition.right
     };
+  }
+
+  private parseAlign(): MathNode {
+    this.expectPunct("(");
+    const rows: MathNode[] = [];
+    if (this.checkPunct(")")) {
+      throw new FormulaParseError("多行对齐公式不能为空", this.peek().position);
+    }
+
+    while (true) {
+      rows.push(this.parseAdd());
+      if (this.checkPunct(";")) {
+        this.consume();
+        continue;
+      }
+      if (this.checkPunct(")")) {
+        this.consume();
+        break;
+      }
+      throw new FormulaParseError("多行对齐公式请使用分号分隔每一行", this.peek().position);
+    }
+
+    return { type: "align", rows };
   }
 
   private parseScriptOperand(): MathNode {
@@ -492,6 +521,10 @@ export function attachNaryBodies(node: MathNode): MathNode {
     };
   }
 
+  if (node.type === "align") {
+    return { ...node, rows: node.rows.map(attachNaryBodies) };
+  }
+
   if (node.type === "func") return { ...node, argument: attachNaryBodies(node.argument) };
   return node;
 }
@@ -511,6 +544,7 @@ export function parseFormula(source: string, templates: FormulaTemplate[] = []):
     usedTemplates: expanded.usedTemplates
   };
 }
+
 
 
 

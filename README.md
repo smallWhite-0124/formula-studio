@@ -94,3 +94,12 @@ src/
 - 新增分段函数：`cases(x^2,x>=0;-x,x<0)`
 - MathLive 预览已升级为可视化编辑：修改会回写到线性源码，并继续走 AST/OMML 导出链路
 - 公式旁增加“编辑”和“还原源码”按钮
+
+## DOCX 导入与公式稳定性
+
+- 支持导入 `.docx`，读取 Word 段落、标题、粗体/斜体和 OMML 公式
+- 导入后的 OMML 会原样保留，再次导出仍为 Word 原生公式
+- 支持独立公式与行内公式切换
+- 支持多行对齐：`align(x=1;y=2)`
+- 支持 `matrix`、`bmatrix`、`pmatrix`、`vmatrix`、`cases`
+- MathLive 修改会通过 LaTeX 适配器同步回线性源码

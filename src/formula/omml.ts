@@ -95,6 +95,11 @@ function render(node: MathNode): string {
       if (!node.left && !node.right) return matrix;
       return delimiter(node.left ?? "(", node.right ?? "", matrix);
     }
+    case "align": {
+      return `<m:eqArr>${node.rows
+        .map((row) => `<m:e>${render(row)}</m:e>`)
+        .join("")}</m:eqArr>`;
+    }
     case "func": {
       const name = FUNCTION_COMMANDS[node.name] ?? node.name;
       if (node.name === "abs") return delimiter("|", "|", render(node.argument));
@@ -108,4 +113,5 @@ function render(node: MathNode): string {
 export function toOmml(node: MathNode): string {
   return render(node);
 }
+
 

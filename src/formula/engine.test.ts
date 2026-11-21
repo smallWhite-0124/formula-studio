@@ -43,6 +43,15 @@ describe("linear formula parser", () => {
     expect(limit.latex).toContain("\\lim");
   });
 
+  it("parses multiline aligned equations", () => {
+    const aligned = parseFormula("align(x=1;y=2)");
+    const converted = mathLiveLatexToLinear("\\begin{aligned}x&=1 \\\\ y&=2\\end{aligned}");
+    expect(aligned.latex).toContain("\\begin{aligned}");
+    expect(aligned.latex).toContain("&=");
+    expect(converted).toBe("align(x=1;y=2)");
+    expect(toOmml(aligned.ast)).toContain("<m:eqArr>");
+  });
+
   it("converts MathLive LaTeX matrices back to linear syntax", () => {
     const matrix = mathLiveLatexToLinear("\\begin{pmatrix}a & b \\\\ c & d\\end{pmatrix}");
     const cases = mathLiveLatexToLinear("\\begin{cases}{x}^{2} & x\\ge0 \\\\ -x & x<0\\end{cases}");
@@ -118,6 +127,7 @@ describe("OMML and DOCX", () => {
     expect(coreXml).toContain("测试文档");
   });
 });
+
 
 
 

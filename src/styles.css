@@ -325,10 +325,43 @@ math-field.mathlive-field {
   white-space: nowrap;
 }
 
+.formula-mode-toggle {
+  display: inline-flex;
+  gap: 2px;
+  margin-top: 10px;
+  padding: 2px;
+  border: 1px solid #ddd4c6;
+  border-radius: 8px;
+  background: rgba(255, 253, 248, 0.78);
+}
+
+.formula-mode-toggle button {
+  min-height: 27px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  color: #81867e;
+  background: transparent;
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.formula-mode-toggle button.is-active {
+  color: var(--teal);
+  background: var(--teal-soft);
+  font-weight: 700;
+}
+
+.lab-mode-toggle {
+  display: flex;
+  width: fit-content;
+  margin: 11px 0 0;
+}
+
 .lab-actions {
   display: flex;
   gap: 7px;
-  margin-top: 11px;
+  margin-top: 8px;
 }
 
 .grow-button {
@@ -586,6 +619,21 @@ math-field.mathlive-field {
   cursor: pointer;
   line-height: 1.25;
   transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+}
+
+.formula-node-block {
+  display: flex;
+  width: fit-content;
+  max-width: 100%;
+  justify-content: center;
+  margin: 14px auto;
+  padding: 10px 14px;
+  border-color: rgba(36, 91, 87, 0.17);
+  background: rgba(36, 91, 87, 0.055);
+}
+
+.formula-node-block .formula-render {
+  overflow-x: auto;
 }
 
 .formula-node:hover,
@@ -1112,4 +1160,5 @@ math-field.mathlive-field {
     flex-direction: column;
   }
 }
+
 

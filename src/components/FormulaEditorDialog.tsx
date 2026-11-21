@@ -9,9 +9,10 @@ import { MathLivePreview } from "./MathLivePreview";
 interface FormulaEditorDialogProps {
   title: string;
   initialSource: string;
+  initialDisplayMode?: boolean;
   templates: FormulaTemplate[];
   onClose: () => void;
-  onSave: (source: string, parsed: ParsedFormula) => void;
+  onSave: (source: string, parsed: ParsedFormula, displayMode: boolean) => void;
 }
 
 function errorMessage(error: unknown): string {
@@ -22,6 +23,7 @@ function errorMessage(error: unknown): string {
 export function FormulaEditorDialog({
   title,
   initialSource,
+  initialDisplayMode = false,
   templates,
   onClose,
   onSave
@@ -29,6 +31,7 @@ export function FormulaEditorDialog({
   const [source, setSource] = useState(initialSource);
   const [copyState, setCopyState] = useState<"latex" | "omml" | null>(null);
   const [syncKey, setSyncKey] = useState(0);
+  const [displayMode, setDisplayMode] = useState(initialDisplayMode);
 
   const result = useMemo(() => {
     try {
@@ -43,12 +46,12 @@ export function FormulaEditorDialog({
       if (event.key === "Escape") onClose();
       if ((event.ctrlKey || event.metaKey) && event.key === "Enter" && result.parsed) {
         event.preventDefault();
-        onSave(source, result.parsed);
+        onSave(source, result.parsed, displayMode);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [result.parsed, onClose, onSave, source]);
+  }, [result.parsed, displayMode, onClose, onSave, source]);
 
   const copy = async (kind: "latex" | "omml") => {
     if (!result.parsed) return;
@@ -98,6 +101,22 @@ export function FormulaEditorDialog({
             <p className="field-hint">
               支持上下标、分数、根号、求和、积分，以及你保存的自定义模板。
             </p>
+            <div className="formula-mode-toggle" role="group" aria-label="公式布局">
+              <button
+                type="button"
+                className={!displayMode ? "is-active" : ""}
+                onClick={() => setDisplayMode(false)}
+              >
+                行内公式
+              </button>
+              <button
+                type="button"
+                className={displayMode ? "is-active" : ""}
+                onClick={() => setDisplayMode(true)}
+              >
+                独立公式
+              </button>
+            </div>
           </div>
 
           <div className="preview-column">
@@ -176,7 +195,7 @@ export function FormulaEditorDialog({
               type="button"
               className="primary-button"
               disabled={!result.parsed}
-              onClick={() => result.parsed && onSave(source, result.parsed)}
+              onClick={() => result.parsed && onSave(source, result.parsed, displayMode)}
             >
               保存公式
             </button>
@@ -192,6 +211,8 @@ function showVirtualKeyboard() {
   if (!keyboard) return;
   keyboard.show();
 }
+
+
 
 
 
