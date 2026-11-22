@@ -142,3 +142,12 @@ src/
 - References automatically follow equation order changes
 - DOCX normal export writes the number on the right side of the formula
 - Fidelity export still only rewrites formula OMML; numbering changes require normal export
+
+## Word fidelity preview and dynamic fields
+
+- Imported DOCX can be rendered with docx-preview.
+- Preview shows original tables, images, headers/footers, pagination, comments and tracked changes.
+- Preview applies current formula edits through faithful OMML patching.
+- Word equation numbers use `SEQ Equation` fields.
+- Word references use `REF` fields and stable bookmarks.
+- Exported settings set `updateFields` so Word refreshes numbers and references on open.

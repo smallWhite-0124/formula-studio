@@ -42,9 +42,15 @@ describe("equation numbering and references", () => {
     const zip = await JSZip.loadAsync(await blob.arrayBuffer());
     const xml = await zip.file("word/document.xml")!.async("string");
     expect(xml).toContain("(1)");
-    expect(xml).toContain("(2)");
+    expect((xml.match(/SEQ Equation/g) ?? []).length).toBe(2);
+    expect(xml).toContain(">2</w:t>");
     expect(xml).toContain("<w:tab/>");
+    expect(xml).toContain("SEQ Equation");
+    expect(xml).toContain("REF Eq_energy");
+    expect(xml).toContain("<w:bookmarkStart");
     expect(xml).toContain("见公式 ");
+    const settings = await zip.file("word/settings.xml")!.async("string");
+    expect(settings).toContain('<w:updateFields w:val="true"/>');
   });
 
   it("does not number inline formulas", async () => {

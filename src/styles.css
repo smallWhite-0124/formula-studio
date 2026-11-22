@@ -1499,3 +1499,83 @@ math-field.mathlive-field {
     grid-column: 1 / -1;
   }
 }
+
+.word-preview-dialog {
+  display: flex;
+  width: min(1280px, 100%);
+  height: calc(100vh - 44px);
+  flex-direction: column;
+  overflow: hidden;
+  padding: 18px;
+}
+
+.preview-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.word-preview-note {
+  margin: 10px 0;
+  color: #7e857e;
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.word-preview-warning {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border: 1px solid rgba(170, 110, 26, 0.22);
+  border-radius: 8px;
+  color: #8b5b19;
+  background: rgba(212, 154, 58, 0.08);
+  font-size: 10px;
+}
+
+.word-preview-loading {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 0;
+  color: var(--teal);
+  font-size: 11px;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+.docx-preview-viewport {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  padding: 20px;
+  border: 1px solid #d8d0c3;
+  border-radius: 10px;
+  background: #e7e4dd;
+}
+
+.docx-preview-body {
+  min-width: fit-content;
+}
+
+.docx-preview-style {
+  display: none;
+}
+
+.docx-preview-viewport .docx-wrapper {
+  padding: 0;
+  background: transparent;
+}
+
+.docx-preview-viewport .docx-wrapper > section.docx {
+  margin: 0 auto 18px;
+  box-shadow: 0 8px 26px rgba(32, 40, 37, 0.16);
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}

@@ -12,17 +12,24 @@ interface RunOptions {
   color?: string;
 }
 
+function bookmarkName(label: string): string {
+  const safe = label.replace(/[^A-Za-z0-9_]/g, "_").replace(/^[^A-Za-z_]/, "_").slice(0, 36);
+  return `Eq_${safe || "formula"}`;
+}
+
 function enrichEquationNumbers(document: JSONContent): JSONContent {
   const clone = structuredClone(document) as JSONContent;
-  const labels = new Map<string, number>();
+  const labels = new Map<string, { number: number; bookmarkName: string; bookmarkId: number }>();
   let number = 0;
 
   const visit = (node: JSONContent) => {
     if (node.type === "formula" && node.attrs?.numbering && node.attrs?.displayMode) {
       number += 1;
       const label = String(node.attrs.label || `eq${number}`);
-      node.attrs = { ...node.attrs, label, equationNumber: number };
-      labels.set(label, number);
+      const name = bookmarkName(label);
+      const id = 2000 + number;
+      node.attrs = { ...node.attrs, label, equationNumber: number, bookmarkName: name, bookmarkId: id };
+      labels.set(label, { number, bookmarkName: name, bookmarkId: id });
     }
     for (const child of node.content ?? []) visit(child);
   };
@@ -31,9 +38,11 @@ function enrichEquationNumbers(document: JSONContent): JSONContent {
 
   const assignReferences = (node: JSONContent) => {
     if (node.type === "equationReference") {
+      const target = labels.get(String(node.attrs?.label ?? ""));
       node.attrs = {
         ...node.attrs,
-        equationNumber: labels.get(String(node.attrs?.label ?? "")) ?? null
+        equationNumber: target?.number ?? null,
+        bookmarkName: target?.bookmarkName ?? null
       };
     }
     for (const child of node.content ?? []) assignReferences(child);
@@ -57,6 +66,10 @@ function textRun(text: string, options: RunOptions = {}): string {
   return `<w:r>${properties ? `<w:rPr>${properties}</w:rPr>` : ""}<w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r>`;
 }
 
+function complexField(instruction: string, cachedText: string): string {
+  return `<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve">${escapeXml(instruction)}</w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>${textRun(cachedText)}<w:r><w:fldChar w:fldCharType="end"/></w:r>`;
+}
+
 function marksToOptions(marks: JSONContent["marks"] = []): RunOptions {
   return {
     bold: marks?.some((mark) => mark.type === "bold"),
@@ -74,7 +87,9 @@ function inlineToXml(node: JSONContent): string {
     const omml = String(node.attrs?.omml ?? "");
     if (omml) {
       if (node.attrs?.displayMode && node.attrs?.numbering) {
-        return `<m:oMathPara><m:oMath>${omml}</m:oMath></m:oMathPara><w:r><w:tab/></w:r>${textRun(`(${node.attrs.equationNumber ?? "?"})`)}`;
+        const bookmarkId = Number(node.attrs.bookmarkId ?? 0);
+        const bookmark = String(node.attrs.bookmarkName ?? "");
+        return `<m:oMathPara><m:oMath>${omml}</m:oMath></m:oMathPara><w:r><w:tab/></w:r><w:bookmarkStart w:id="${bookmarkId}" w:name="${escapeXml(bookmark)}"/>${textRun("(")}${complexField(" SEQ Equation \\* ARABIC ", String(node.attrs.equationNumber ?? "1"))}${textRun(")")}<w:bookmarkEnd w:id="${bookmarkId}"/>`;
       }
       return node.attrs?.displayMode
         ? `<m:oMathPara><m:oMath>${omml}</m:oMath></m:oMathPara>`
@@ -84,6 +99,8 @@ function inlineToXml(node: JSONContent): string {
   }
   if (node.type === "equationReference") {
     const equationNumber = node.attrs?.equationNumber;
+    const bookmark = String(node.attrs?.bookmarkName ?? "");
+    if (bookmark) return complexField(` REF ${bookmark} \\h `, `(${equationNumber ?? "?"})`);
     return textRun(equationNumber ? `(${equationNumber})` : `(${node.attrs?.label ?? "?"})`);
   }
   if (node.content) return node.content.map(inlineToXml).join("");
@@ -175,6 +192,14 @@ function stylesXml(): string {
 </w:styles>`;
 }
 
+function settingsXml(): string {
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:settings xmlns:w="${WORD_NS}">
+  <w:updateFields w:val="true"/>
+  <w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat>
+</w:settings>`;
+}
+
 function corePropsXml(title: string): string {
   const now = new Date().toISOString();
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -208,6 +233,7 @@ export async function buildDocxBlob(content: JSONContent, title = "公式文档"
   <Default Extension="xml" ContentType="application/xml"/>
   <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
   <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
+  <Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/>
   <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
   <Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
 </Types>`
@@ -228,11 +254,13 @@ export async function buildDocxBlob(content: JSONContent, title = "公式文档"
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/>
 </Relationships>`
   );
 
   zip.file("word/document.xml", documentXml(enrichedContent));
   zip.file("word/styles.xml", stylesXml());
+  zip.file("word/settings.xml", settingsXml());
   zip.file("docProps/core.xml", corePropsXml(title));
   zip.file("docProps/app.xml", appPropsXml());
 

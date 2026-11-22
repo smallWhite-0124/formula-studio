@@ -8,6 +8,7 @@ import {
   Cloud,
   Copy,
   Download,
+  FileSearch,
   Heading1,
   Heading2,
   Italic,
@@ -29,6 +30,7 @@ import { EquationReferenceDialog } from "./components/EquationReferenceDialog";
 import { FormulaEditorDialog } from "./components/FormulaEditorDialog";
 import { MathLivePreview } from "./components/MathLivePreview";
 import { TemplateDialog } from "./components/TemplateDialog";
+import { WordPreviewDialog } from "./components/WordPreviewDialog";
 import { FormulaNode, type FormulaEditDetail } from "./editor/FormulaNode";
 import { EquationReferenceNode } from "./editor/EquationReferenceNode";
 import { collectEquationLabels, nextEquationLabel } from "./editor/equations";
@@ -183,6 +185,7 @@ export default function App() {
   const [editingFormula, setEditingFormula] = useState<FormulaEditDetail | null>(null);
   const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
   const [referenceDialogOpen, setReferenceDialogOpen] = useState(false);
+  const [wordPreviewOpen, setWordPreviewOpen] = useState(false);
   const [cloudDialogOpen, setCloudDialogOpen] = useState(false);
   const [cloudUserEmail, setCloudUserEmail] = useState<string | null>(null);
   const [cloudDocuments, setCloudDocuments] = useState<CloudDocumentSummary[]>([]);
@@ -911,9 +914,14 @@ export default function App() {
                 <strong>保真导出模式</strong>
                 <span>表格、图片、批注、页眉页脚和页面布局会原样保留；当前只回写公式修改。</span>
               </div>
-              <button type="button" className="secondary-button" onClick={switchToNormalExport}>
-                切换普通导出
-              </button>
+              <div className="fidelity-banner-actions">
+                <button type="button" className="secondary-button" onClick={() => setWordPreviewOpen(true)}>
+                  <FileSearch size={14} /> Word 预览
+                </button>
+                <button type="button" className="secondary-button" onClick={switchToNormalExport}>
+                  切换普通导出
+                </button>
+              </div>
             </div>
           ) : null}
 
@@ -950,6 +958,14 @@ export default function App() {
           existing={customTemplates}
           onClose={() => setTemplateDialogOpen(false)}
           onSave={saveTemplate}
+        />
+      ) : null}
+
+      {wordPreviewOpen && fidelityMetaRef.current && editor ? (
+        <WordPreviewDialog
+          originalBuffer={fidelityMetaRef.current.buffer}
+          formulaOmml={collectFormulaOmml(editor.getJSON())}
+          onClose={() => setWordPreviewOpen(false)}
         />
       ) : null}
 
