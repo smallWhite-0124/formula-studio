@@ -10,9 +10,11 @@ interface FormulaEditorDialogProps {
   title: string;
   initialSource: string;
   initialDisplayMode?: boolean;
+  initialNumbering?: boolean;
+  initialLabel?: string;
   templates: FormulaTemplate[];
   onClose: () => void;
-  onSave: (source: string, parsed: ParsedFormula, displayMode: boolean) => void;
+  onSave: (source: string, parsed: ParsedFormula, displayMode: boolean, numbering: boolean, label: string) => void;
 }
 
 function errorMessage(error: unknown): string {
@@ -24,6 +26,8 @@ export function FormulaEditorDialog({
   title,
   initialSource,
   initialDisplayMode = false,
+  initialNumbering = false,
+  initialLabel = "",
   templates,
   onClose,
   onSave
@@ -32,6 +36,8 @@ export function FormulaEditorDialog({
   const [copyState, setCopyState] = useState<"latex" | "omml" | null>(null);
   const [syncKey, setSyncKey] = useState(0);
   const [displayMode, setDisplayMode] = useState(initialDisplayMode);
+  const [numbering, setNumbering] = useState(initialNumbering);
+  const [label, setLabel] = useState(initialLabel);
 
   const result = useMemo(() => {
     try {
@@ -46,12 +52,12 @@ export function FormulaEditorDialog({
       if (event.key === "Escape") onClose();
       if ((event.ctrlKey || event.metaKey) && event.key === "Enter" && result.parsed) {
         event.preventDefault();
-        onSave(source, result.parsed, displayMode);
+        onSave(source, result.parsed, displayMode, numbering, label);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [result.parsed, displayMode, onClose, onSave, source]);
+  }, [result.parsed, displayMode, numbering, label, onClose, onSave, source]);
 
   const copy = async (kind: "latex" | "omml") => {
     if (!result.parsed) return;
@@ -105,7 +111,7 @@ export function FormulaEditorDialog({
               <button
                 type="button"
                 className={!displayMode ? "is-active" : ""}
-                onClick={() => setDisplayMode(false)}
+                onClick={() => { setDisplayMode(false); setNumbering(false); }}
               >
                 行内公式
               </button>
@@ -116,7 +122,25 @@ export function FormulaEditorDialog({
               >
                 独立公式
               </button>
+              <button
+                type="button"
+                className={numbering ? "is-active" : ""}
+                onClick={() => { setNumbering(true); setDisplayMode(true); }}
+              >
+                自动编号
+              </button>
             </div>
+            {numbering ? (
+              <div className="equation-label-row">
+                <label htmlFor="equation-label">引用标签</label>
+                <input
+                  id="equation-label"
+                  value={label}
+                  onChange={(event) => setLabel(event.target.value)}
+                  placeholder="eq1"
+                />
+              </div>
+            ) : null}
           </div>
 
           <div className="preview-column">
@@ -195,7 +219,7 @@ export function FormulaEditorDialog({
               type="button"
               className="primary-button"
               disabled={!result.parsed}
-              onClick={() => result.parsed && onSave(source, result.parsed, displayMode)}
+              onClick={() => result.parsed && onSave(source, result.parsed, displayMode, numbering, label)}
             >
               保存公式
             </button>

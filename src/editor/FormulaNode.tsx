@@ -2,25 +2,48 @@ import { Node, mergeAttributes } from "@tiptap/core";
 import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
 import katex from "katex";
 import { Braces, Pencil } from "lucide-react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { equationNumberAtPosition } from "./equations";
 
 export interface FormulaAttrs {
   source: string;
   latex: string;
   omml: string;
   displayMode: boolean;
+  numbering: boolean;
+  label: string;
 }
 
 export interface FormulaEditDetail {
   position: number;
   source: string;
   displayMode: boolean;
+  numbering: boolean;
+  label: string;
 }
 
 function FormulaNodeView(props: NodeViewProps) {
   const source = String(props.node.attrs.source ?? "");
   const latex = String(props.node.attrs.latex ?? "");
   const displayMode = Boolean(props.node.attrs.displayMode ?? false);
+  const numbering = Boolean(props.node.attrs.numbering ?? false);
+  const label = String(props.node.attrs.label ?? "");
+  const [equationNumber, setEquationNumber] = useState<number | null>(null);
+
+  useEffect(() => {
+    const update = () => {
+      const position = props.getPos();
+      setEquationNumber(
+        typeof position === "number" ? equationNumberAtPosition(props.editor.state.doc, position) : null
+      );
+    };
+    update();
+    props.editor.on("transaction", update);
+    return () => {
+      props.editor.off("transaction", update);
+    };
+  }, [displayMode, label, numbering, props.editor]);
+
   const html = useMemo(() => {
     try {
       return katex.renderToString(latex, {
@@ -51,7 +74,7 @@ function FormulaNodeView(props: NodeViewProps) {
     selectFormula();
     window.dispatchEvent(
       new CustomEvent<FormulaEditDetail>("formula:edit", {
-        detail: { position, source, displayMode }
+        detail: { position, source, displayMode, numbering, label }
       })
     );
   };
@@ -89,6 +112,9 @@ function FormulaNodeView(props: NodeViewProps) {
       ) : (
         <span className="formula-fallback">{source}</span>
       )}
+      {numbering && displayMode ? (
+        <span className="formula-equation-number">({equationNumber ?? "?"})</span>
+      ) : null}
       <span className="formula-actions">
         <button
           type="button"
@@ -135,7 +161,9 @@ export const FormulaNode = Node.create({
       source: { default: "" },
       latex: { default: "" },
       omml: { default: "" },
-      displayMode: { default: false }
+      displayMode: { default: false },
+      numbering: { default: false },
+      label: { default: "" }
     };
   },
 
@@ -149,7 +177,9 @@ export const FormulaNode = Node.create({
             source: htmlElement.getAttribute("data-source") ?? "",
             latex: htmlElement.getAttribute("data-latex") ?? "",
             omml: htmlElement.getAttribute("data-omml") ?? "",
-            displayMode: htmlElement.getAttribute("data-display-mode") === "true"
+            displayMode: htmlElement.getAttribute("data-display-mode") === "true",
+            numbering: htmlElement.getAttribute("data-numbering") === "true",
+            label: htmlElement.getAttribute("data-label") ?? ""
           };
         }
       }
@@ -165,6 +195,9 @@ export const FormulaNode = Node.create({
         "data-latex": HTMLAttributes.latex,
         "data-omml": HTMLAttributes.omml,
         "data-display-mode": String(Boolean(HTMLAttributes.displayMode)),
+        "data-numbering": String(Boolean(HTMLAttributes.numbering)),
+        "data-label": HTMLAttributes.label,
+        "data-formula-id": HTMLAttributes.label,
         class: "formula-node"
       }),
       HTMLAttributes.source

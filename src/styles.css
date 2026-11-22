@@ -1385,3 +1385,117 @@ math-field.mathlive-field {
     flex-direction: column;
   }
 }
+
+.formula-equation-number {
+  min-width: 32px;
+  margin-left: 8px;
+  padding-left: 7px;
+  border-left: 1px solid rgba(36, 91, 87, 0.18);
+  color: #64726c;
+  font-family: Georgia, serif;
+  font-size: 0.82em;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.equation-reference {
+  display: inline;
+  margin: 0 2px;
+  color: #9f472e;
+  font-family: Georgia, "Songti SC", serif;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.equation-label-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 10px;
+}
+
+.equation-label-row label {
+  color: #69716c;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.equation-label-row input {
+  width: 150px;
+  min-height: 31px;
+  padding: 0 9px;
+  border: 1px solid #d8cfc1;
+  border-radius: 7px;
+  outline: none;
+  background: #fffdf8;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 11px;
+}
+
+.reference-dialog {
+  width: min(620px, 100%);
+}
+
+.reference-list {
+  display: grid;
+  max-height: 440px;
+  gap: 8px;
+  overflow-y: auto;
+  padding-top: 16px;
+}
+
+.reference-item {
+  display: grid;
+  grid-template-columns: auto minmax(90px, auto) 1fr;
+  gap: 9px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid #ded6c8;
+  border-radius: 9px;
+  color: #3f4945;
+  background: #fffdf8;
+  cursor: pointer;
+  text-align: left;
+}
+
+.reference-item:hover {
+  border-color: rgba(36, 91, 87, 0.35);
+  background: rgba(36, 91, 87, 0.045);
+}
+
+.reference-number {
+  color: var(--teal);
+  font-family: Georgia, serif;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.reference-label {
+  color: #8e958d;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 9px;
+}
+
+.reference-item code {
+  overflow: hidden;
+  color: #58645e;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reference-toolbar-button {
+  min-height: 34px;
+  padding: 0 10px;
+}
+
+@media (max-width: 620px) {
+  .reference-item {
+    grid-template-columns: auto 1fr;
+  }
+
+  .reference-item code {
+    grid-column: 1 / -1;
+  }
+}

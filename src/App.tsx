@@ -3,6 +3,7 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import {
   Bold,
+  Bookmark,
   Braces,
   Cloud,
   Copy,
@@ -24,10 +25,13 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CloudDialog } from "./components/CloudDialog";
+import { EquationReferenceDialog } from "./components/EquationReferenceDialog";
 import { FormulaEditorDialog } from "./components/FormulaEditorDialog";
 import { MathLivePreview } from "./components/MathLivePreview";
 import { TemplateDialog } from "./components/TemplateDialog";
 import { FormulaNode, type FormulaEditDetail } from "./editor/FormulaNode";
+import { EquationReferenceNode } from "./editor/EquationReferenceNode";
+import { collectEquationLabels, nextEquationLabel } from "./editor/equations";
 import { collectFormulaOmml } from "./export/formulaCollection";
 import { buildShareUrl, parseSharedDocumentHash } from "./share/documentLink";
 import {
@@ -110,12 +114,15 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function formulaAttrs(parsed: ParsedFormula, displayMode = false) {
+function formulaAttrs(parsed: ParsedFormula, displayMode = false, numbering = false, label = "") {
+  const numbered = displayMode && numbering;
   return {
     source: parsed.source,
     latex: parsed.latex,
     omml: toOmml(parsed.ast),
-    displayMode
+    displayMode,
+    numbering: numbered,
+    label: numbered ? label : ""
   };
 }
 
@@ -172,8 +179,10 @@ export default function App() {
   const [isImporting, setIsImporting] = useState(false);
   const [labSource, setLabSource] = useState(INITIAL_SOURCE);
   const [insertDisplayMode, setInsertDisplayMode] = useState(false);
+  const [insertNumbering, setInsertNumbering] = useState(false);
   const [editingFormula, setEditingFormula] = useState<FormulaEditDetail | null>(null);
   const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
+  const [referenceDialogOpen, setReferenceDialogOpen] = useState(false);
   const [cloudDialogOpen, setCloudDialogOpen] = useState(false);
   const [cloudUserEmail, setCloudUserEmail] = useState<string | null>(null);
   const [cloudDocuments, setCloudDocuments] = useState<CloudDocumentSummary[]>([]);
@@ -261,7 +270,7 @@ export default function App() {
   }, []);
 
   const editor = useEditor({
-    extensions: [StarterKit, FormulaNode],
+    extensions: [StarterKit, FormulaNode, EquationReferenceNode],
     content: sharedDocument?.document ?? loadDocument(),
     editorProps: {
       attributes: {
@@ -370,6 +379,20 @@ export default function App() {
       return;
     }
 
+    const referenceMatch = selectedText.trim().match(/^(?:\\?eqref|\\?ref|@eq)\(([^()]+)\)$/);
+    if (referenceMatch) {
+      editor
+        .chain()
+        .focus()
+        .insertContentAt(
+          { from, to },
+          { type: "equationReference", attrs: { label: referenceMatch[1].trim() } }
+        )
+        .run();
+      showToast("已插入公式引用。", "success");
+      return;
+    }
+
     try {
       const parsed = parseFormula(selectedText, templatesRef.current);
       editor
@@ -396,15 +419,20 @@ export default function App() {
 
 
   const insertFormula = useCallback(
-    (parsed: ParsedFormula, displayMode = false) => {
+    (parsed: ParsedFormula, displayMode = false, numbering = false) => {
       if (!editor) return;
+      const numbered = displayMode && numbering;
+      const label = numbered ? nextEquationLabel(editor.state.doc) : "";
       editor
         .chain()
         .focus()
-        .insertContent({ type: "formula", attrs: formulaAttrs(parsed, displayMode) })
+        .insertContent({ type: "formula", attrs: formulaAttrs(parsed, displayMode, numbering, label) })
         .insertContent(" ")
         .run();
-      showToast(displayMode ? "独立公式已插入文档。" : "行内公式已插入文档。", "success");
+      showToast(
+        numbered ? `编号公式已插入：${label}。` : displayMode ? "独立公式已插入文档。" : "行内公式已插入文档。",
+        "success"
+      );
     },
     [editor, showToast]
   );
@@ -421,7 +449,13 @@ export default function App() {
     showToast("OMML 已复制。", "success");
   };
 
-  const saveEditedFormula = (source: string, parsed: ParsedFormula, displayMode: boolean) => {
+  const saveEditedFormula = (
+    source: string,
+    parsed: ParsedFormula,
+    displayMode: boolean,
+    numbering: boolean,
+    label: string
+  ) => {
     if (!editor || !editingFormula) return;
     const node = editor.state.doc.nodeAt(editingFormula.position);
     if (!node || node.type.name !== "formula") {
@@ -430,15 +464,29 @@ export default function App() {
       return;
     }
 
+    const numbered = displayMode && numbering;
+    const finalLabel = numbered ? (label.trim() || nextEquationLabel(editor.state.doc)) : "";
+    if (numbered) {
+      const duplicate = collectEquationLabels(editor.state.doc).find(
+        (equation) => equation.label === finalLabel && equation.position !== editingFormula.position
+      );
+      if (duplicate) {
+        showToast(`引用标签“${finalLabel}”已被另一条公式使用。`, "error", 5000);
+        return;
+      }
+    }
+
     const transaction = editor.state.tr.setNodeMarkup(editingFormula.position, undefined, {
       source,
       latex: parsed.latex,
       omml: toOmml(parsed.ast),
-      displayMode
+      displayMode,
+      numbering: numbered,
+      label: finalLabel
     });
     editor.view.dispatch(transaction);
     setEditingFormula(null);
-    showToast("公式已更新。", "success");
+    showToast(numbered ? `公式已更新，自动编号为 (${collectEquationLabels(editor.state.doc).find((equation) => equation.position === editingFormula.position)?.number ?? "?"})。` : "公式已更新。", "success");
   };
 
   const saveTemplate = (template: FormulaTemplate) => {
@@ -602,6 +650,18 @@ export default function App() {
   };
 
 
+  const numberedEquations = useMemo(
+    () => (editor ? collectEquationLabels(editor.state.doc) : []),
+    [editor, revision]
+  );
+
+  const insertEquationReference = (label: string) => {
+    if (!editor) return;
+    editor.chain().focus().insertContent({ type: "equationReference", attrs: { label } }).run();
+    setReferenceDialogOpen(false);
+    showToast(`已插入公式引用：${label}`, "success");
+  };
+
   const hasSelection = Boolean(editor && editor.state.selection.from !== editor.state.selection.to);
   const isFormulaSelected = Boolean(editor && selectedFormula(editor));
 
@@ -683,7 +743,7 @@ export default function App() {
               onKeyDown={(event) => {
                 if ((event.ctrlKey || event.metaKey) && event.key === "Enter" && labResult.parsed) {
                   event.preventDefault();
-                  insertFormula(labResult.parsed, insertDisplayMode);
+                  insertFormula(labResult.parsed, insertDisplayMode, insertNumbering);
                 }
               }}
             />
@@ -717,17 +777,24 @@ export default function App() {
             <div className="formula-mode-toggle lab-mode-toggle" role="group" aria-label="插入公式方式">
               <button
                 type="button"
-                className={!insertDisplayMode ? "is-active" : ""}
-                onClick={() => setInsertDisplayMode(false)}
+                className={!insertDisplayMode && !insertNumbering ? "is-active" : ""}
+                onClick={() => { setInsertDisplayMode(false); setInsertNumbering(false); }}
               >
                 行内
               </button>
               <button
                 type="button"
-                className={insertDisplayMode ? "is-active" : ""}
-                onClick={() => setInsertDisplayMode(true)}
+                className={insertDisplayMode && !insertNumbering ? "is-active" : ""}
+                onClick={() => { setInsertDisplayMode(true); setInsertNumbering(false); }}
               >
                 独立
+              </button>
+              <button
+                type="button"
+                className={insertNumbering ? "is-active" : ""}
+                onClick={() => { setInsertDisplayMode(true); setInsertNumbering(true); }}
+              >
+                编号
               </button>
             </div>
 
@@ -736,7 +803,7 @@ export default function App() {
                 type="button"
                 className="primary-button grow-button"
                 disabled={!labResult.parsed}
-                onClick={() => labResult.parsed && insertFormula(labResult.parsed, insertDisplayMode)}
+                onClick={() => labResult.parsed && insertFormula(labResult.parsed, insertDisplayMode, insertNumbering)}
               >
                 <Plus size={16} /> 插入到文档
               </button>
@@ -827,6 +894,14 @@ export default function App() {
               {isFormulaSelected ? "还原为源码" : "转换为公式"}
             </button>
 
+            <button
+              type="button"
+              className="secondary-button reference-toolbar-button"
+              onClick={() => setReferenceDialogOpen(true)}
+            >
+              <Bookmark size={15} /> 引用公式
+            </button>
+
             <span className="toolbar-tip">选中文本后按 Ctrl + Enter</span>
           </div>
 
@@ -875,6 +950,14 @@ export default function App() {
           existing={customTemplates}
           onClose={() => setTemplateDialogOpen(false)}
           onSave={saveTemplate}
+        />
+      ) : null}
+
+      {referenceDialogOpen ? (
+        <EquationReferenceDialog
+          equations={numberedEquations}
+          onClose={() => setReferenceDialogOpen(false)}
+          onInsert={insertEquationReference}
         />
       ) : null}
 

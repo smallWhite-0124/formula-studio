@@ -1,5 +1,4 @@
 import type { JSONContent } from "@tiptap/core";
-import JSZip from "jszip";
 import { escapeXml } from "../formula/omml";
 
 const WORD_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
@@ -11,6 +10,37 @@ interface RunOptions {
   strike?: boolean;
   code?: boolean;
   color?: string;
+}
+
+function enrichEquationNumbers(document: JSONContent): JSONContent {
+  const clone = structuredClone(document) as JSONContent;
+  const labels = new Map<string, number>();
+  let number = 0;
+
+  const visit = (node: JSONContent) => {
+    if (node.type === "formula" && node.attrs?.numbering && node.attrs?.displayMode) {
+      number += 1;
+      const label = String(node.attrs.label || `eq${number}`);
+      node.attrs = { ...node.attrs, label, equationNumber: number };
+      labels.set(label, number);
+    }
+    for (const child of node.content ?? []) visit(child);
+  };
+
+  visit(clone);
+
+  const assignReferences = (node: JSONContent) => {
+    if (node.type === "equationReference") {
+      node.attrs = {
+        ...node.attrs,
+        equationNumber: labels.get(String(node.attrs?.label ?? "")) ?? null
+      };
+    }
+    for (const child of node.content ?? []) assignReferences(child);
+  };
+
+  assignReferences(clone);
+  return clone;
 }
 
 function textRun(text: string, options: RunOptions = {}): string {
@@ -43,11 +73,18 @@ function inlineToXml(node: JSONContent): string {
   if (node.type === "formula") {
     const omml = String(node.attrs?.omml ?? "");
     if (omml) {
+      if (node.attrs?.displayMode && node.attrs?.numbering) {
+        return `<m:oMathPara><m:oMath>${omml}</m:oMath></m:oMathPara><w:r><w:tab/></w:r>${textRun(`(${node.attrs.equationNumber ?? "?"})`)}`;
+      }
       return node.attrs?.displayMode
         ? `<m:oMathPara><m:oMath>${omml}</m:oMath></m:oMathPara>`
         : `<m:oMath>${omml}</m:oMath>`;
     }
     return textRun(String(node.attrs?.source ?? "[formula]"));
+  }
+  if (node.type === "equationReference") {
+    const equationNumber = node.attrs?.equationNumber;
+    return textRun(equationNumber ? `(${equationNumber})` : `(${node.attrs?.label ?? "?"})`);
   }
   if (node.content) return node.content.map(inlineToXml).join("");
   return "";
@@ -56,7 +93,8 @@ function inlineToXml(node: JSONContent): string {
 function paragraphXml(children: JSONContent[] = [], style?: string, prefix?: string): string {
   const properties = [
     style ? `<w:pStyle w:val="${style}"/>` : "",
-    '<w:spacing w:after="140" w:line="360" w:lineRule="auto"/>'
+    '<w:spacing w:after="140" w:line="360" w:lineRule="auto"/>',
+    '<w:tabs><w:tab w:val="right" w:pos="9000"/></w:tabs>'
   ].join("");
   const content = `${prefix ? textRun(prefix) : ""}${children.map(inlineToXml).join("")}`;
   return `<w:p><w:pPr>${properties}</w:pPr>${content}</w:p>`;
@@ -158,6 +196,8 @@ function appPropsXml(): string {
 }
 
 export async function buildDocxBlob(content: JSONContent, title = "公式文档"): Promise<Blob> {
+  const enrichedContent = enrichEquationNumbers(content);
+  const { default: JSZip } = await import("jszip");
   const zip = new JSZip();
 
   zip.file(
@@ -191,7 +231,7 @@ export async function buildDocxBlob(content: JSONContent, title = "公式文档"
 </Relationships>`
   );
 
-  zip.file("word/document.xml", documentXml(content));
+  zip.file("word/document.xml", documentXml(enrichedContent));
   zip.file("word/styles.xml", stylesXml());
   zip.file("docProps/core.xml", corePropsXml(title));
   zip.file("docProps/app.xml", appPropsXml());

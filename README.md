@@ -132,3 +132,13 @@ src/
 - Binomials: `binom(n,k)`
 - Augmented matrices: `augmatrix(1,2|3;4,5|6)`
 - Explicit alignment: `align(x&=1;y&=2)`
+
+## Equation numbering and references
+
+- Numbered display formulas: `公式编辑 → 自动编号`
+- Labels are stable, e.g. `eq1`, `eq2`
+- Reference button lists all numbered formulas and inserts an inline reference
+- Text syntax: select `eqref(eq1)` and press `Ctrl+Enter`
+- References automatically follow equation order changes
+- DOCX normal export writes the number on the right side of the formula
+- Fidelity export still only rewrites formula OMML; numbering changes require normal export
